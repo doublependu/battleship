@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0b2a40" />
+    <meta name="description" content="Classic Battleship in the browser: you against the AI, in 3D on real water." />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Battleship</title>
+    <style>
+      *,*::before,*::after{box-sizing:border-box}
+      html,body,#app{position:fixed;inset:0;margin:0;overflow:hidden;width:100%;height:100vh;height:100dvh;
+        overscroll-behavior:none;-webkit-text-size-adjust:100%;text-size-adjust:100%;user-select:none;
+        -webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+      body{font:16px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif;
+        color:#eef6fb;background:linear-gradient(#9cc4dc 0%,#cfe2ec 46%,#2b6f93 50%,#0b2a40 100%)}
+      #scene{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none}
+      button{font:inherit;color:inherit;touch-action:manipulation;cursor:pointer}
+      .screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+        gap:14px;padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right))
+        max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));text-align:center}
+      .screen[hidden]{display:none}
+      #title{background:radial-gradient(ellipse at 50% 45%,rgba(5,25,40,.45),rgba(5,25,40,0) 70%)}
+      #title h1{margin:0;font-size:clamp(40px,10vw,84px);letter-spacing:.08em;font-weight:800;
+        text-shadow:0 3px 18px rgba(0,20,40,.6);text-transform:uppercase}
+      #title .sub{margin:0 0 6px;opacity:.9;text-shadow:0 1px 6px rgba(0,20,40,.8)}
+      #loading{width:min(320px,70vw)}
+      .bar{height:6px;border-radius:3px;background:rgba(255,255,255,.25);overflow:hidden}
+      .bar i{display:block;height:100%;width:8%;background:#ffd166;transition:width .25s}
+      #loadmsg{margin:8px 0 0;font-size:13px;opacity:.85}
+      .seg{display:inline-flex;border-radius:12px;background:rgba(5,25,40,.55);padding:4px;gap:4px}
+      .seg button{border:0;background:transparent;padding:10px 14px;border-radius:9px;min-width:84px}
+      .seg button[aria-checked=true]{background:#eef6fb;color:#0b2a40;font-weight:700}
+      .primary{border:0;border-radius:12px;padding:14px 44px;font-size:20px;font-weight:800;letter-spacing:.06em;
+        background:#ffd166;color:#13293d;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+      .fork{position:fixed;top:0;right:0;width:150px;height:150px;overflow:hidden;z-index:30;pointer-events:none}
+      .fork a{position:absolute;top:36px;right:-46px;width:210px;transform:rotate(45deg);pointer-events:auto;
+        background:#a00;color:#fff;text-decoration:none;font:700 13px/2.2 system-ui,sans-serif;text-align:center;
+        box-shadow:0 2px 8px rgba(0,0,0,.45);border-top:1px dashed rgba(255,255,255,.55);
+        border-bottom:1px dashed rgba(255,255,255,.55);letter-spacing:.02em}
+      .fork[hidden]{display:none}
+      #version{position:fixed;left:max(8px,env(safe-area-inset-left));bottom:max(6px,env(safe-area-inset-bottom));
+        z-index:30;font:11px/1 ui-monospace,Menlo,Consolas,monospace;opacity:.6;pointer-events:none;
+        text-shadow:0 1px 2px #000}
+      #nowebgl{max-width:420px;background:rgba(5,25,40,.75);padding:14px 18px;border-radius:12px}
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="scene" tabindex="0" aria-label="Battleship game board"></canvas>
+
+      <section id="title" class="screen">
+        <h1>Battleship</h1>
+        <p class="sub">You against the AI, on real water</p>
+        <div id="loading">
+          <div class="bar"><i id="progress"></i></div>
+          <p id="loadmsg">Loading…</p>
+        </div>
+        <div id="menu" hidden>
+          <div class="seg" role="radiogroup" aria-label="Difficulty" id="difficulty">
+            <button role="radio" data-diff="easy" aria-checked="false">Recruit</button>
+            <button role="radio" data-diff="normal" aria-checked="true">Captain</button>
+            <button role="radio" data-diff="hard" aria-checked="false">Admiral</button>
+          </div>
+          <p><button id="play" class="primary">PLAY</button></p>
+        </div>
+        <p id="nowebgl" hidden>
+          This game needs a browser with WebGL2 (any recent Chrome, Edge, Firefox or Safari). Please update your
+          browser or enable hardware acceleration.
+        </p>
+      </section>
+
+      <div id="ui"></div>
+      <div class="fork" id="fork"><a href="https://github.com/doublependu/battleship" target="_blank" rel="noopener">Fork me on GitHub</a></div>
+      <div id="version">%APP_VERSION%</div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

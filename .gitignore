@@ -147,3 +147,9 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Battleship project
+recordings/
+test-results/
+playwright-report/
+.wrangler/
