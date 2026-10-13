@@ -151,9 +151,13 @@ export class ShipView {
     this.yaw = ship.horizontal ? 0 : Math.PI / 2;
   }
 
-  /** Local x (along the hull) of the k-th cell of the ship. */
+  /**
+   * Local x (along the hull) of the k-th cell of the ship. Cells count from the top-left cell: the stern of a
+   * horizontal ship, whose bow points to +x, but the bow of a vertical one, whose bow points to -z (towards row 0).
+   */
   cellLocalX(k) {
-    return k - (this.length - 1) / 2;
+    const half = (this.length - 1) / 2;
+    return this.horizontal ? k - half : half - k;
   }
 
   addHit(k, kick = true) {
