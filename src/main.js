@@ -9,7 +9,7 @@ import { Game, PHASE } from './game/game.js';
 import { bindKeyboard } from './input/keyboard.js';
 import { blockZoom } from './input/noZoom.js';
 import { PointerInput } from './input/pointer.js';
-import { BoardView, cellCenter } from './render/board/boardView.js';
+import { BoardView, cellAt, cellCenter } from './render/board/boardView.js';
 import { GameClock } from './render/clock.js';
 import { Ripples } from './render/ocean/ripples.js';
 import { swellHeight } from './render/ocean/swell.js';
@@ -21,6 +21,7 @@ import { FleetView } from './render/ships/fleetView.js';
 import { Hud } from './ui/hud.js';
 import { Overlays } from './ui/overlays.js';
 import { loadSettings, saveSettings, SettingsPanel } from './ui/settings.js';
+import { openCompany } from './net/company.js';
 
 const params = new URLSearchParams(location.search);
 const E2E = params.has('e2e');
@@ -44,13 +45,19 @@ const S = {
   selectedShip: 0,
   drag: null,
   autoTier: null,
+  /** The tier the player was last shown: on the title or pause screen, or in a toast. */
+  toldTier: null,
   tierSwitch: Promise.resolve(),
   fx: null,
   fxLoading: null,
   benchmark: null,
   shotLog: [],
   errors: [],
+  /** The battle in a room (`net/play.js`), or null: against the AI. */
+  room: null,
 };
+/** The room's side of things, once the page is up: `open()` shows the p3p2 panel. */
+let company = null;
 
 // ---------------------------------------------------------------- overlays first (they paint immediately)
 const overlays = new Overlays(uiRoot, {
@@ -63,8 +70,16 @@ const overlays = new Overlays(uiRoot, {
     setPaused(false);
     startPlacement();
   },
-  playAgain: () => startPlacement(),
-  toMenu: () => toTitle(),
+  playAgain: () => (S.room ? S.room.menu().next() : startPlacement()),
+  toMenu: () => (S.room ? overlays.showGameOver(null) : toTitle()),
+  friends: () => {
+    setPaused(false);
+    company?.open();
+  },
+  room: (what) => {
+    setPaused(false);
+    S.room?.menu()[what]?.();
+  },
 });
 overlays.setLoading(0.15, 'Checking your device…');
 overlays.setDifficulty(settings.difficulty);
@@ -124,6 +139,7 @@ const hud = new Hud(uiRoot, {
   startBattle: () => startBattle(),
   fire: () => S.touchAim && fireAt(S.touchAim.r, S.touchAim.c),
   peek: (side) => setView(side),
+  friends: () => company?.open(),
 });
 
 const settingsPanel = new SettingsPanel(uiRoot, {
@@ -236,6 +252,7 @@ async function startPlacement() {
 function startBattle() {
   if (S.phase !== 'placement') return;
   cancelDrag();
+  if (S.room) return S.room.ready();
   game.startBattle(clock.time);
   S.phase = 'battle';
   hud.setMode('battle');
@@ -265,12 +282,15 @@ function toTitle() {
 }
 
 function setPaused(on) {
-  if (on && (S.phase === 'title' || S.phase === 'loading' || S.phase === 'over')) return;
+  // After a battle in a room the menu still has the next one, and leaving the table.
+  if (on && (S.phase === 'title' || S.phase === 'loading' || (S.phase === 'over' && !S.room))) return;
   if (S.paused === on) return;
   S.paused = on;
   clock.paused = on;
+  overlays.setRoom(S.room ? S.room.menu() : null);
   overlays.showPause(on);
   if (on) {
+    S.toldTier = r.tierName;
     audio.suspend();
     cancelDrag();
   } else {
@@ -294,6 +314,12 @@ function updateSoundIcons() {
 }
 
 async function fireAt(row, col) {
+  if (S.room) {
+    S.touchAim = null;
+    hud.setFireVisible(false);
+    if (!S.room.fire(row, col)) audio.cue('invalid');
+    return;
+  }
   if (S.phase !== 'battle' || S.paused) return;
   if (!game.canPlayerFire(row, col) || director.busy) return;
   S.touchAim = null;
@@ -405,7 +431,7 @@ const placement = {
 };
 
 // ---------------------------------------------------------------- input
-const canFireNow = () => S.phase === 'battle' && !S.paused && !director.busy && game.turn === 'player';
+const canFireNow = () => (S.room ? S.room.canFire() : S.phase === 'battle' && !S.paused && !director.busy && game.turn === 'player');
 
 const pointer = new PointerInput({
   canvas,
@@ -471,12 +497,13 @@ bindKeyboard({
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
-    setPaused(true);
+    // In a room there is no AI to hold back: the battle goes on, and this page still answers the shots at it.
+    if (!S.room) setPaused(true);
     audio.suspend();
   } else if (!S.paused) audio.resume();
 });
 addEventListener('blur', () => {
-  if (!E2E) setPaused(true);
+  if (!E2E && !S.room) setPaused(true);
 });
 // Any first gesture unlocks audio (browser autoplay rules). Touch only grants activation on pointerup/touchend.
 for (const type of ['pointerdown', 'pointerup', 'touchend', 'keydown']) addEventListener(type, () => {
@@ -492,9 +519,25 @@ function switchTier(name) {
     audio.setTier(r.tier);
     layout();
     settingsPanel.refresh();
-    overlays.setTierHint(r.tierName, settings.graphics === 'auto' && !forcedTier);
+    updateTierHint();
   }).catch((e) => console.error('Tier switch failed', e));
   return S.tierSwitch;
+}
+
+/**
+ * Names the tier on screen on the title and pause screens. Auto starts on High and its benchmark often ends after
+ * PLAY, on Ultra: whoever only saw "High" on the title is then told by a toast (`tellTier`).
+ */
+function updateTierHint() {
+  const auto = settings.graphics === 'auto' && !forcedTier;
+  overlays.setTierHint(r.tierName, auto, auto && !S.benchDone);
+  if (overlays.titleOpen || overlays.pauseOpen) S.toldTier = r.tierName;
+}
+
+function tellTier() {
+  if (overlays.titleOpen || r.tierName === S.toldTier) return;
+  S.toldTier = r.tierName;
+  hud.toast(`Graphics: ${TIERS[r.tierName].name} (auto)`);
 }
 
 function applyGraphics() {
@@ -521,8 +564,12 @@ function startBenchmark(quick) {
         meter.dispose();
         S.benchmark = null;
         S.afterBenchmark?.();
-        overlays.setTierHint(r.tierName, true);
-        settingsPanel.refresh();
+        // The tier it settled on may still be switching in.
+        S.tierSwitch.then(() => {
+          updateTierHint();
+          tellTier();
+          settingsPanel.refresh();
+        });
       },
     }),
   };
@@ -555,6 +602,7 @@ function frame(now) {
       const lower = TIER_ORDER[TIER_ORDER.indexOf(r.tierName) - 1];
       if (lower) {
         S.autoTier = lower;
+        S.toldTier = lower;
         switchTier(lower);
         hud.toast('Graphics lowered to keep the game smooth');
       }
@@ -586,10 +634,19 @@ requestAnimationFrame((t0) => {
     S.ready = true;
     overlays.setLoading(1);
     overlays.showMenu();
-    overlays.setTierHint(r.tierName, settings.graphics === 'auto' && !forcedTier);
+    r.autoTier = settings.graphics === 'auto' && !forcedTier;
+    updateTierHint();
     updateSoundIcons();
     hud.setFps(settings.showFps || params.has('stats'), '');
-    r.autoTier = settings.graphics === 'auto' && !forcedTier;
+    // Friends: a room on a p3p2 server (net/company.js). Only now, so that an invite never holds up the first frame.
+    company = openCompany({
+      game, board, fleet, hud, overlays, r, clock, ripples, S, director, audio,
+      fx: () => S.fx,
+      loadFx,
+      setView,
+      layout,
+      toTitle,
+    });
     // Deferred work first, then let the page settle before benchmarking so the numbers aren't noisy.
     // Audio cue rendering waits for the benchmark (sound can't play before the first tap anyway).
     const loadAudio = () => audio.load().then(() => updateSoundIcons());
@@ -613,9 +670,16 @@ audio.setSwell((x, z) => swellHeight(x, z, clock.time));
 }
 
 // ---------------------------------------------------------------- e2e hook (player-visible info only)
-if (E2E) {
+// Also in a dev build: a page opened from an invite link has no `?e2e` in its address.
+if (E2E || import.meta.env.DEV) {
   addEventListener('error', (e) => S.errors.push(String(e.message)));
   const v = cellCenter('enemy', 0, 0);
+  const toasts = [];
+  const toast = hud.toast.bind(hud);
+  hud.toast = (text, ms) => {
+    toasts.push(text);
+    toast(text, ms);
+  };
   window.__bs = {
     get phase() {
       return S.phase;
@@ -641,6 +705,15 @@ if (E2E) {
     },
     get ownFleet() {
       return game.player.ships.map((s) => ({ type: s.type, r: s.r, c: s.c, horizontal: s.horizontal, length: s.length, sunk: s.sunk }));
+    },
+    /** Where the hits on this page's own ships are drawn: the cell under each scorch on a hull, as [row, col]. */
+    get hullHits() {
+      return fleet.views.player.flatMap((sv) =>
+        sv.hits.map((x) => {
+          const p = sv.localToWorld(new THREE.Vector3(x, 0, 0));
+          const at = cellAt(p.x, p.z);
+          return at && [at.r, at.c];
+        }));
     },
     get winner() {
       return game.winner;
@@ -671,8 +744,11 @@ if (E2E) {
     get quality() {
       return { detected: S.autoTier, current: r.tierName, auto: r.autoTier, guess, info: { gpu: info.gpu, mobile: info.mobile },
         benchmark: S.benchLog ?? null, benchmarking: !!S.benchmark, hullsInWater: fleet.hullCount ?? 0,
-        visibleShips: fleet.all().filter((x) => x.footprint()).length };
+        visibleShips: fleet.all().filter((x) => x.footprint()).length,
+        sunk: fleet.all().filter((x) => x.sunk).length, wrecks: fleet.all().filter((x) => x.sunk && x.group.visible).length };
     },
+    /** Every toast so far, oldest first. */
+    toasts,
     get errors() {
       return [...S.errors];
     },

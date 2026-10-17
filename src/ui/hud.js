@@ -1,4 +1,4 @@
-// In-game HUD: status line, remaining fleets, pause/mute buttons, placement bar, board tabs, Fire button,
+// In-game HUD: status line, remaining fleets, pause/mute/friends buttons, placement bar, board tabs, Fire button,
 // toast and FPS readout. Reports its occupied heights so the camera keeps the boards clear of it.
 import { FLEET } from '../config.js';
 import { ICONS } from './icons.js';
@@ -14,13 +14,16 @@ export class Hud {
       <div class="topbar">
         <div class="status" data-k="status" aria-live="polite">&nbsp;</div>
         <div class="fleets" data-k="fleets">
-          <span class="side"><b>You</b><span data-k="pips-player"></span></span>
-          <span class="side"><b>Enemy</b><span data-k="pips-enemy"></span></span>
+          <span class="side"><b data-k="name-player">You</b><span data-k="pips-player"></span></span>
+          <span class="side"><b data-k="name-enemy">Enemy</b><span data-k="pips-enemy"></span></span>
         </div>
       </div>
       <div class="iconbar">
         <button class="icon" data-k="pause" aria-label="Pause">${ICONS.pause}</button>
         <button class="icon" data-k="mute" aria-label="Mute">${ICONS.soundOn}</button>
+      </div>
+      <div class="iconbar right">
+        <button class="icon" data-k="friends" aria-label="Play with a friend" title="Play with a friend">${ICONS.people}</button>
       </div>
       <div class="bottombar">
         <div data-k="placement" hidden>
@@ -59,6 +62,7 @@ export class Hud {
     on('rotate', () => actions.rotate());
     on('start', () => actions.startBattle());
     on('fire', () => actions.fire());
+    on('friends', () => actions.friends());
     q('tabs').addEventListener('click', (e) => {
       const v = e.target.closest('button')?.dataset.v;
       if (v) actions.peek(v);
@@ -74,6 +78,24 @@ export class Hud {
     this.q('placement').hidden = mode !== 'placement';
     this.q('battle').hidden = mode !== 'battle';
     this.q('fleets').hidden = mode === 'placement';
+  }
+
+  /** The names over the two fleets' pips: yours and theirs, or the two admirals' for somebody watching. */
+  setNames(left, right) {
+    this.q('name-player').textContent = left;
+    this.q('name-enemy').textContent = right;
+  }
+
+  /** The focus-mode tabs: your fleet and the enemy's waters, or the two admirals' fleets for somebody watching. */
+  setTabLabels(player = 'Your fleet', enemy = 'Enemy waters') {
+    const [a, b] = this.q('tabs').querySelectorAll('button');
+    a.textContent = player;
+    b.textContent = enemy;
+  }
+
+  /** The placement bar's button: "Start Battle" against the AI, "Ready" with a friend. */
+  setReadyLabel(label) {
+    this.q('start').textContent = label ?? 'Start Battle';
   }
 
   setStatus(text, tone = '') {

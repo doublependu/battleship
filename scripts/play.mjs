@@ -41,7 +41,7 @@ let server;
 async function ensureServer() {
   if (URL_BASE) return;
   URL_BASE = 'http://localhost:4173';
-  server = spawn('npx', ['vite', 'preview', '--port', '4173', '--strictPort'], { stdio: 'ignore' });
+  server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--port', '4173', '--strictPort'], { stdio: 'ignore' }); // not npx: kill() must reach vite
   for (let i = 0; i < 60; i++) {
     try {
       if ((await fetch(URL_BASE)).ok) return;
@@ -246,11 +246,11 @@ async function playGame(g) {
       await sleep(80);
       await tap(p.x, p.y); // second tap fires
     }
-    await waitFor(`__bs.shots.length > ${before}`, 15000).catch(() => fail(`shot at ${r},${c} did not register`));
+    await waitFor(`__bs.shots.length > ${before}`, 15000).catch(() => fail(`shot ${myShots + 1} at ${r},${c} did not register`));
     const shots = await bs('__bs.shots');
     const mine = shots.slice(before).filter((s) => s.by === 'player');
-    if (mine.length !== 1) fail(`expected exactly one player result, got ${mine.length}`);
-    else if (mine[0].r !== r || mine[0].c !== c) fail(`clicked ${r},${c} but fired at ${mine[0].r},${mine[0].c}`);
+    if (mine.length !== 1) fail(`shot ${myShots + 1}: expected exactly one player result, got ${mine.length}`);
+    else if (mine[0].r !== r || mine[0].c !== c) fail(`shot ${myShots + 1}: clicked ${r},${c} but fired at ${mine[0].r},${mine[0].c}`);
     const res = mine[0] ?? { result: 'miss' };
     bot.observe(i, res.result, res.type ?? undefined);
     myShots++;
@@ -272,7 +272,7 @@ async function playGame(g) {
       await waitFor('!__bs.paused');
     }
     if (flag('rotate') && (myShots === 5 || myShots === 15)) await rotateViewport(`shot ${myShots}`);
-    if (flag('switch-quality') && myShots === 10) await switchQuality();
+    if (flag('switch-quality') && myShots === 24) await switchQuality();
     if (myShots > 100) {
       fail('game did not end after 100 shots');
       break;
@@ -280,6 +280,8 @@ async function playGame(g) {
   }
   await sleep(1500 / SPEED);
   await screenshot(`g${g}-over`);
+  await sleep(5000 / SPEED); // the last ship finishes going down
+  await checkWrecks('game over');
   const stats = await bs('__bs.stats');
   const winner = await bs('__bs.winner');
   const shots = await bs('__bs.shots');
@@ -301,6 +303,13 @@ async function playGame(g) {
   console.log(`game ${g}: ${winner} won — player ${stats.player.shots} shots, AI ${stats.ai.shots} shots, ${result.seconds}s`);
 }
 
+/** Sunk ships follow the tier on screen: wrecks on the seabed on Ultra, none on any other tier. */
+async function checkWrecks(label) {
+  const q = await bs('__bs.quality');
+  const want = q.current === 'ultra' ? q.sunk : 0;
+  if (q.wrecks !== want) fail(`${label}: ${q.wrecks} wrecks drawn on ${q.current} with ${q.sunk} ships sunk (want ${want})`);
+}
+
 async function switchQuality() {
   for (const tier of ['low', 'ultra', 'low']) {
     await page.keyboard.press('p');
@@ -314,6 +323,7 @@ async function switchQuality() {
     await waitFor('!__bs.paused');
     await sleep(600);
     await checkLayout(`after switching to ${tier}`);
+    await checkWrecks(`after switching to ${tier}`);
     await screenshot(`tier-${tier}`);
   }
 }
@@ -324,6 +334,7 @@ try {
   await checkLayout('title', false);
   await pinchTest();
   await clickButton(`#difficulty [data-diff="${DIFFICULTY}"]`);
+  const tierAtPlay = (await bs('__bs.quality')).current;
   await clickButton('#play');
   for (let g = 0; g < GAMES; g++) {
     await playGame(g);
@@ -331,6 +342,13 @@ try {
   }
   const errs = await bs('__bs.errors');
   for (const e of errs) fail(`in-page error: ${e}`);
+  // Auto may change the tier after PLAY (it starts on High): the player must be told.
+  const q = await bs('__bs.quality');
+  if (QUALITY === 'auto' && !flag('switch-quality') && q.current !== tierAtPlay) {
+    const toasts = await bs('__bs.toasts');
+    if (!toasts.some((t) => t.startsWith('Graphics'))) fail(`tier went ${tierAtPlay} -> ${q.current} after PLAY without a toast`);
+    else console.log(`  tier ${tierAtPlay} -> ${q.current} after PLAY, toast: "${toasts.find((t) => t.startsWith('Graphics'))}"`);
+  }
 } catch (e) {
   fail(`script error: ${e.message}`);
   await page.screenshot({ path: `${outDir}/error.png` }).catch(() => {});

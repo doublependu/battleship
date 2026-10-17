@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
     <meta name="theme-color" content="#0b2a40" />
-    <meta name="description" content="Classic Battleship in the browser: you against the AI, in 3D on real water." />
+    <meta name="description" content="Classic Battleship in the browser: against the AI or a friend, in 3D on real water." />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Battleship</title>
     <style>
@@ -42,6 +42,18 @@
         box-shadow:0 2px 8px rgba(0,0,0,.45);border-top:1px dashed rgba(255,255,255,.55);
         border-bottom:1px dashed rgba(255,255,255,.55);letter-spacing:.02em}
       .fork[hidden]{display:none}
+      .more{margin:0;font-size:14px}
+      .more a{display:inline-block;min-height:44px;padding:13px 12px;line-height:18px;color:#eef6fb;text-decoration:none;
+        opacity:.85;text-shadow:0 1px 6px rgba(0,20,40,.8)}
+      .more a:hover,.more a:focus-visible{opacity:1;text-decoration:underline}
+      .more b{color:#ffd166}
+      #menu>p{margin:12px 0}
+      @media (max-height:520px){
+        #title{gap:4px}
+        #title h1{font-size:clamp(30px,11vh,64px);line-height:1.05}
+        #title .sub{margin:0}
+        #menu>p{margin:6px 0}
+      }
       #version{position:fixed;left:max(8px,env(safe-area-inset-left));bottom:max(6px,env(safe-area-inset-bottom));
         z-index:30;font:11px/1 ui-monospace,Menlo,Consolas,monospace;opacity:.6;pointer-events:none;
         text-shadow:0 1px 2px #000}
@@ -54,7 +66,7 @@
 
       <section id="title" class="screen">
         <h1>Battleship</h1>
-        <p class="sub">You against the AI, on real water</p>
+        <p class="sub">Against the AI or a friend, on real water</p>
         <div id="loading">
           <div class="bar"><i id="progress"></i></div>
           <p id="loadmsg">Loading…</p>
@@ -66,11 +78,13 @@
             <button role="radio" data-diff="hard" aria-checked="false">Admiral</button>
           </div>
           <p><button id="play" class="primary">PLAY</button></p>
+          <p class="friends"><button id="friends" class="btn ghost">👥 Play with a friend</button></p>
         </div>
         <p id="nowebgl" hidden>
           This game needs a browser with WebGL2 (any recent Chrome, Edge, Firefox or Safari). Please update your
           browser or enable hardware acceleration.
         </p>
+        <p class="more"><a href="https://maize.live" target="_blank" rel="noopener">More games on <b>Maize.Live</b></a></p>
       </section>
 
       <div id="ui"></div>

@@ -17,7 +17,7 @@ const budget = DEVICE === 'phone' ? 1000 / 30 : 1000 / 60;
 let server;
 if (!url) {
   url = 'http://localhost:4173';
-  server = spawn('npx', ['vite', 'preview', '--port', '4173', '--strictPort'], { stdio: 'ignore' });
+  server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--port', '4173', '--strictPort'], { stdio: 'ignore' }); // not npx: kill() must reach vite
   for (let i = 0; i < 60; i++) {
     try {
       if ((await fetch(url)).ok) break;

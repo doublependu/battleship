@@ -41,3 +41,12 @@ SOFTWARE.
 ## three.js
 
 - https://github.com/mrdoob/three.js — MIT License, Copyright © 2010-2026 three.js authors. Bundled from npm.
+
+## @p3p2/client and lean-qr
+
+- https://github.com/doublependu/p3p2 (`client/`) — MIT License, Copyright (c) 2026 Man & Bot. Bundled from npm; it
+  loads the room client, the panel and the QR code only when a room is opened.
+- The QR code is drawn by lean-qr (https://github.com/davidje13/lean-qr), bundled into the client's `p3p2-qr` chunk —
+  MIT License, Copyright (c) 2021-2025 David Evans.
+
+Both under the MIT licence text quoted above for threejs-water, with their own copyright lines.

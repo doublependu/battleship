@@ -1,4 +1,4 @@
-// Both fleets: builds ShipViews from the boards, feeds visible hulls to the water, switches materials per tier.
+// Both fleets: builds ShipViews from the boards, feeds visible hulls to the water, switches materials and wrecks per tier.
 import * as THREE from 'three';
 import { createShipMaterial, ShipView } from './shipView.js';
 
@@ -48,6 +48,8 @@ export class FleetView {
         this.ultraExtra = extra;
         this.all().forEach((v, i) => v.setTierMaterial(materials[i] ?? createShipMaterial(tier, extra ?? {})));
         sample.dispose();
+        // Sunk ships follow the tier now on screen, not the one they sank on: wrecks on Ultra, none elsewhere.
+        for (const v of this.all()) if (v.sunk || v.sinking) v.settle(!!tier.ultra);
       },
     };
   }

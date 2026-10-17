@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { BOARD_CENTER_X } from '../../config.js';
 import { addSwell } from '../swellMaterial.js';
-import { createLabels } from './labels.js';
+import { createLabels, setTitles } from './labels.js';
 
 export const SIDE_INDEX = { player: 0, enemy: 1 };
 
@@ -62,6 +62,11 @@ export class BoardView {
     this.hitKeys = [];
     this.setAim(null);
     this.setPlacement(null);
+  }
+
+  /** The words over the two boards; none: "your fleet" and "enemy waters". */
+  setTitles(titles) {
+    setTitles(this.labels, titles);
   }
 
   /** Show/hide the grid, labels and buoys (title screen hides them). */

@@ -20,6 +20,8 @@
 .pip.sunk { background: #d0402f; opacity: 0.85; }
 .iconbar { position: absolute; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left));
   display: flex; gap: 6px; }
+/* Top right, where p3p2's panel opens: the status between the two bars has the room the topbar keeps either side. */
+.iconbar.right { left: auto; right: max(8px, env(safe-area-inset-right)); }
 .icon { width: 44px; height: 44px; border: 0; border-radius: 12px; background: rgba(5, 25, 40, 0.55);
   display: grid; place-items: center; padding: 0; }
 .icon svg { width: 22px; height: 22px; fill: none; stroke: #eef6fb; stroke-width: 2; stroke-linecap: round;
@@ -70,6 +72,18 @@
   pointer-events: none; }
 #title .iconbar { position: absolute; }
 #title .tier { font-size: 12px; opacity: 0.7; margin-top: 4px; }
+.card .tier { font-size: 12px; opacity: 0.65; margin: 14px 0 0; }
 .banner { font-size: clamp(34px, 8vw, 56px); font-weight: 900; letter-spacing: 0.06em; margin: 0 0 6px; }
 .banner.win { color: #ffd166; }
 .banner.lose { color: #ff7b6b; }
+.card .more { margin: 2px 0 -8px; }
+/* Short screens (a phone on its side): the pause menu in two columns, everything a little tighter. */
+@media (max-height: 520px) {
+  .card { padding: 14px 18px 10px; }
+  .card h2 { font-size: 20px; margin-bottom: 4px; }
+  .card .stack.menu { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  .card .stack.menu .btn.go, .card .stack.menu [data-k='friends'] { grid-column: 1 / -1; }
+  .card .stack .btn { min-height: 40px; padding: 8px 14px; }
+  .card h3 { margin: 10px 0 6px !important; }
+  .card .tier { margin-top: 8px; }
+}

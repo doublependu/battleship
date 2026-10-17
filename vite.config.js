@@ -26,6 +26,9 @@ export default defineConfig({
     },
   },
   server: { host: false },
+  // From @p3p2/client's README: otherwise the dev server hands every visitor the whole library in one piece,
+  // and not just its small entry with the rest loaded when a room opens.
+  optimizeDeps: { exclude: ['@p3p2/client'] },
   test: {
     include: ['tests/unit/**/*.test.js'],
     environment: 'node',

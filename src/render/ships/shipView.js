@@ -179,6 +179,37 @@ export class ShipView {
     if (instant) this.reveal = 1;
   }
 
+  /**
+   * A sunk ship as the current tier shows it: Ultra keeps it on the seabed as a wreck, every other tier hides it.
+   * A sinking under way ends the new tier's way. A ship that sank before this page drew it (a room's battle so
+   * far) takes the pose its sinking would have ended in.
+   */
+  settle(ultra) {
+    if (this.sinking) {
+      this.sinking.ultra = ultra;
+      return;
+    }
+    if (!this.sunk) {
+      this.show(true);
+      this.sunk = true;
+      this.restPitch = 0;
+      this.restRoll = (Math.random() < 0.5 ? -1 : 1) * 0.47;
+      if (this.meshes.length === 2) this.#breakApart(1);
+      this.uniforms.uBurn.value = 1;
+    }
+    this.restY = ultra ? SEABED_Y + this.model.draft + 0.25 : SEABED_Y - 1;
+    this.group.visible = ultra;
+  }
+
+  /** The two halves of a ship that breaks, b = 0 (whole) .. 1 (apart). */
+  #breakApart(b) {
+    const bb = b * b * (3 - 2 * b);
+    this.meshes[0].rotation.z = -0.38 * bb;
+    this.meshes[1].rotation.z = 0.38 * bb;
+    this.meshes[0].position.set(-0.12 * bb, -0.25 * bb, 0);
+    this.meshes[1].position.set(0.12 * bb, -0.25 * bb, 0);
+  }
+
   /** Start the sinking sequence. ultra: settle on the seabed as a wreck instead of disappearing. */
   startSinking(time, ultra, rng = Math.random) {
     this.sinking = {
@@ -243,16 +274,9 @@ export class ShipView {
       roll += s.listDir * (0.22 * list + 0.25 * ease);
       const dir = s.bowFirst ? -1 : 1;
       const floor = s.ultra ? SEABED_Y + this.model.draft + 0.25 : SEABED_Y - 1;
-      y += (floor - y) * Math.max(0, (t - s.afloat) / (s.duration - s.afloat)) ** 1.5;
+      y += (floor - y) * Math.min(1, Math.max(0, (t - s.afloat) / (s.duration - s.afloat))) ** 1.5;
       pitch += dir * 0.32 * Math.sin(Math.min(1, ease * 1.3) * Math.PI) * (s.ultra ? 0.8 : 1);
-      if (this.meshes.length === 2) {
-        const b = Math.min(1, Math.max(0, (t - s.breakAt) / 2.2));
-        const bb = b * b * (3 - 2 * b);
-        this.meshes[0].rotation.z = -0.38 * bb;
-        this.meshes[1].rotation.z = 0.38 * bb;
-        this.meshes[0].position.set(-0.12 * bb, -0.25 * bb, 0);
-        this.meshes[1].position.set(0.12 * bb, -0.25 * bb, 0);
-      }
+      if (this.meshes.length === 2) this.#breakApart(Math.min(1, Math.max(0, (t - s.breakAt) / 2.2)));
       this.uniforms.uBurn.value = Math.min(1, t / 2);
       if (p >= 1) {
         this.sunk = true;

@@ -3,7 +3,21 @@ import * as THREE from 'three';
 import { BOARD_CENTER_X, ROWS } from '../../config.js';
 
 const GLYPHS = [...ROWS, ...Array.from({ length: 10 }, (_, i) => String(i + 1))];
-const TITLES = ['YOUR FLEET', 'ENEMY WATERS'];
+export const TITLES = ['YOUR FLEET', 'ENEMY WATERS'];
+
+function draw(ctx, text, x, y, size, maxWidth) {
+  ctx.font = `800 ${size}px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif`;
+  ctx.lineWidth = size * 0.16;
+  ctx.strokeStyle = 'rgba(4,22,36,0.75)';
+  ctx.strokeText(text, x, y, maxWidth);
+  ctx.fillStyle = '#f4f9fc';
+  ctx.fillText(text, x, y, maxWidth);
+}
+
+function drawTitles(ctx, titles) {
+  ctx.clearRect(0, 128, 1024, 64);
+  titles.forEach((t, i) => draw(ctx, t, i * 512 + 256, 160 + 4, 46, 496));
+}
 
 function buildAtlas() {
   const canvas = document.createElement('canvas');
@@ -13,21 +27,8 @@ function buildAtlas() {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.lineJoin = 'round';
-  const draw = (text, x, y, size) => {
-    ctx.font = `800 ${size}px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif`;
-    ctx.lineWidth = size * 0.16;
-    ctx.strokeStyle = 'rgba(4,22,36,0.75)';
-    ctx.strokeText(text, x, y);
-    ctx.fillStyle = '#f4f9fc';
-    ctx.fillText(text, x, y);
-  };
-  GLYPHS.forEach((g, i) => draw(g, (i % 16) * 64 + 32, Math.floor(i / 16) * 64 + 34, 44));
-  TITLES.forEach((t, i) => {
-    ctx.save();
-    ctx.translate(i * 512, 0);
-    draw(t, 256, 160 + 4, 46);
-    ctx.restore();
-  });
+  GLYPHS.forEach((g, i) => draw(ctx, g, (i % 16) * 64 + 32, Math.floor(i / 16) * 64 + 34, 44));
+  drawTitles(ctx, TITLES);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
@@ -66,4 +67,11 @@ export function createLabels() {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.renderOrder = 5;
   return mesh;
+}
+
+/** Other words over the two boards: whose fleet each is, for somebody watching two others play. */
+export function setTitles(labels, titles = TITLES) {
+  const tex = labels.material.map;
+  drawTitles(tex.image.getContext('2d'), titles.map((t) => t.toUpperCase()));
+  tex.needsUpdate = true;
 }

@@ -11,6 +11,7 @@
     "test": "vitest run",
     "sim": "node scripts/sim.mjs",
     "play": "node scripts/play.mjs",
+    "friends": "node scripts/friends.mjs",
     "loadtime": "node scripts/loadtime.mjs",
     "perf": "node scripts/perf.mjs",
     "probe": "node scripts/probe.mjs",
@@ -19,6 +20,7 @@
     "deploy:dry": "npm run build && wrangler deploy --dry-run"
   },
   "dependencies": {
+    "@p3p2/client": "^0.1.1",
     "three": "^0.186.1"
   },
   "devDependencies": {

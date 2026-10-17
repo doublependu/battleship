@@ -73,6 +73,9 @@ export class CameraRig {
       this.cur.dist = this.goal.dist;
       this.cur.pitch = this.goal.pitch;
       this.cur.yaw = this.goal.yaw;
+      // Now, not at the next frame: `settled` is already true, and whatever projects through the camera before that
+      // frame (a click's cell, the e2e player's cellToClient) must see where it is.
+      this.#place(this.camera, this.cur.target, this.cur.dist, this.cur.pitch, this.cur.yaw);
     }
   }
 
