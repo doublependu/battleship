@@ -15,6 +15,7 @@
     "loadtime": "node scripts/loadtime.mjs",
     "perf": "node scripts/perf.mjs",
     "probe": "node scripts/probe.mjs",
+    "flash": "node scripts/flash.mjs",
     "size": "node scripts/size.mjs",
     "deploy": "node scripts/version.mjs --check && npm run build && wrangler deploy",
     "deploy:dry": "npm run build && wrangler deploy --dry-run"

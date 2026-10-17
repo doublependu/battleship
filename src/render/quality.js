@@ -95,6 +95,19 @@ export function benchmarkDecision({ tier, cost, budget, maxAuto, tried }) {
   return { action: 'stop', tier };
 }
 
+/**
+ * Adaptive resolution: verdict on one window of frame intervals (ms), 'slow' | 'fast' | null (keep).
+ * By the average, with each frame counted as at most 3x budget. Frames that come unevenly but on time on average
+ * (Firefox at 60 fps: pairs of ~10 and ~24 ms) aren't slow, and one stall (a hidden window, a GC pause, a shader
+ * compiling) doesn't decide it: a lower resolution wouldn't help either.
+ */
+export function frameWindowVerdict(samples, budget) {
+  const mean = samples.reduce((sum, ms) => sum + Math.min(ms, budget * 3), 0) / samples.length;
+  if (mean > budget * 1.15) return 'slow';
+  if (mean < budget * 1.05) return 'fast';
+  return null;
+}
+
 export function storageKey(info, nav = globalThis.navigator ?? {}, win = globalThis.window ?? {}) {
   const browser = (nav.userAgent ?? '').match(/(Chrome|Firefox|Version)\/(\d+)/)?.slice(1).join('') ?? '';
   return `${info.gpu}|${win.screen?.width}x${win.screen?.height}@${win.devicePixelRatio}|${browser}`;

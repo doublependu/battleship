@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { RIPPLE_SPEED } from '../../src/config.js';
 import { Ripples } from '../../src/render/ocean/ripples.js';
-import { benchmarkDecision, classifyGpu, staticGuess, TierBenchmark } from '../../src/render/quality.js';
+import { benchmarkDecision, classifyGpu, frameWindowVerdict, staticGuess, TierBenchmark } from '../../src/render/quality.js';
 
 const base = { webgl2: true, floatRT: true, halfFloatRT: true, parallelCompile: true, timerQuery: false, maxTexture: 16384,
   gpu: '', cores: 8, memory: 8, mobile: false, pixels: 1e6, saveData: false };
@@ -72,6 +72,35 @@ describe('benchmark decision', () => {
     }
     expect(switched).toEqual(['high', 'ultra', 'high']);
     expect(done).toBe('high');
+  });
+});
+
+describe('adaptive resolution verdict', () => {
+  const frames = (pattern) => Array.from({ length: 90 }, (_, i) => pattern[i % pattern.length]);
+  const desktop = 1000 / 60;
+  const phone = 1000 / 30;
+
+  it('uneven frames that are on time on average are not slow (Firefox: pairs of 10 and 24 ms)', () => {
+    expect(frameWindowVerdict(frames([10, 24]), desktop)).toBe('fast');
+    expect(frameWindowVerdict(frames([16.7]), desktop)).toBe('fast');
+  });
+  it('slow when frames really are late', () => {
+    expect(frameWindowVerdict(frames([20]), desktop)).toBe('slow');
+    expect(frameWindowVerdict(frames([16.7, 16.7, 33.3]), desktop)).toBe('slow'); // a vsync missed in every three frames
+  });
+  it('one stall does not decide it (each frame counts as at most 3x budget)', () => {
+    const stalled = frames([16.7]);
+    stalled[40] = 250;
+    expect(frameWindowVerdict(stalled, desktop)).toBe('fast');
+  });
+  it('keeps the resolution in between', () => {
+    expect(frameWindowVerdict(frames([18.3]), desktop)).toBe(null);
+  });
+  it('same verdicts on the phone budget at double the times', () => {
+    expect(frameWindowVerdict(frames([20, 48]), phone)).toBe('fast');
+    expect(frameWindowVerdict(frames([40]), phone)).toBe('slow');
+    expect(frameWindowVerdict(frames([33.3, 33.3, 66.7]), phone)).toBe('slow');
+    expect(frameWindowVerdict(frames([36.6]), phone)).toBe(null);
   });
 });
 

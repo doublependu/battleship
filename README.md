@@ -67,6 +67,7 @@ in two browsers (or a private window). `npm run friends` plays a whole battle th
 | `npm run loadtime` | Throttled load-time check (desktop + mobile proxy), fails above 4 s; `-- --invite` opens it from an invite to a server that never answers |
 | `npm run perf` | Heavy-scene frame times per graphics tier (`-- --device phone --cpu 6`) |
 | `npm run probe` | Auto graphics probe under several CPU throttles and screen sizes |
+| `npm run flash` | Records every frame while the render resolution changes and fails on a one-frame flash (headed Chrome; `-- --tiers ultra,high`) |
 | `npm run size` | Bundle size report, fails over the 200 KB (JS) / 250 KB (total) brotli initial budget |
 
 `npm run play` options: `--games N --device desktop|pixel7|iphone13|tablet --difficulty easy|normal|hard
@@ -88,6 +89,8 @@ triangles), `?seed=N` (reproducible games), `?e2e` (test hook used by the script
 The game checks the device and browser on startup, then benchmarks the live ocean on the title screen and
 picks a tier (Auto). Auto always starts on High at most and may move up to Ultra a moment later; if that happens
 after PLAY, a toast says so. The pause screen names the tier too. You can lower or raise it in Settings at any time.
+Within a tier, the render resolution drops in steps (down to 75%) while frames are slow on average, and comes back
+once they're fast again.
 
 - **Low / Medium / High**: a light single-pass sea shader on the wave simulation; High adds see-through
   water around hulls and hull ripples.

@@ -4,6 +4,7 @@ import { TIERS, TIER_ORDER } from '../config.js';
 import { CameraRig } from './camera.js';
 import { Ocean } from './ocean/ocean.js';
 import { WaterSim } from './ocean/sim.js';
+import { frameWindowVerdict } from './quality.js';
 import { createSkyDome, skyUniforms, SUN_COLOR, SUN_DIR } from './sky.js';
 
 export class Renderer {
@@ -54,6 +55,8 @@ export class Renderer {
     this.dprScale = 1;
     this.cssWidth = 1;
     this.cssHeight = 1;
+    this.sizeDirty = true;
+    this.appliedSize = '';
     this.insets = { top: 0, bottom: 0, left: 0, right: 0 };
     this.monitor = { samples: [], slowWindows: 0, fastWindows: 0, stableNeeded: 4, onTierDrop: null };
     this.autoTier = false;
@@ -68,13 +71,29 @@ export class Renderer {
     return Math.max(0.75, this.maxDpr * this.dprScale);
   }
 
+  /** The camera follows now; the canvas at the start of the next frame (`#applySize`). */
   resize(width, height, insets = this.insets) {
     this.cssWidth = Math.max(1, Math.round(width));
     this.cssHeight = Math.max(1, Math.round(height));
     this.insets = insets;
-    this.renderer.setPixelRatio(this.pixelRatio);
-    this.renderer.setSize(this.cssWidth, this.cssHeight, false);
     this.rig.setViewport(this.cssWidth, this.cssHeight, insets);
+    this.sizeDirty = true;
+  }
+
+  /**
+   * Resizing the canvas empties it. Called just before drawing: an empty canvas left at the end of a frame is shown
+   * for that frame, as a flash of the page behind it (the frame-time monitor and ResizeObserver both resize then).
+   */
+  #applySize() {
+    this.sizeDirty = false;
+    const pr = this.pixelRatio;
+    const key = `${this.cssWidth}x${this.cssHeight}@${pr}`;
+    if (key !== this.appliedSize) {
+      this.appliedSize = key;
+      this.renderer.setPixelRatio(pr);
+      this.renderer.setSize(this.cssWidth, this.cssHeight, false);
+    }
+    // Always: a new UltraWater starts with tiny targets (three skips an unchanged size).
     this.ultra?.setSize(this.renderer.domElement.width, this.renderer.domElement.height);
   }
 
@@ -135,10 +154,9 @@ export class Renderer {
     const m = this.monitor;
     m.samples.push(intervalMs);
     if (m.samples.length < 90) return null;
-    const sorted = [...m.samples].sort((a, b) => a - b);
-    const p90 = sorted[Math.floor(sorted.length * 0.9)];
+    const verdict = frameWindowVerdict(m.samples, budgetMs);
     m.samples = [];
-    if (p90 > budgetMs * 1.3) {
+    if (verdict === 'slow') {
       m.fastWindows = 0;
       if (++m.slowWindows >= 2) {
         m.slowWindows = 0;
@@ -150,7 +168,7 @@ export class Renderer {
           return 'down';
         }
       }
-    } else if (p90 < budgetMs * 1.1) {
+    } else if (verdict === 'fast') {
       m.slowWindows = 0;
       if (++m.fastWindows >= m.stableNeeded && this.dprScale < 1) {
         m.fastWindows = 0;
@@ -162,6 +180,7 @@ export class Renderer {
   }
 
   render(time, dt) {
+    if (this.sizeDirty) this.#applySize();
     this.shared.uTime.value = time;
     if (this.sim) this.sim.update(dt);
     this.ocean.update();

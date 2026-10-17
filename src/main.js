@@ -778,6 +778,14 @@ if (E2E || import.meta.env.DEV) {
       S.fx.sink(victim, !!r.tier?.ultra);
       return true;
     },
+    /** The frame-time monitor sees `ms` as the interval of the next `frames` frames (flash check: forces a step). */
+    feedMonitor(ms, frames) {
+      let left = frames;
+      r.trackFrame = (_, budget) => {
+        if (--left <= 0) delete r.trackFrame;
+        return Renderer.prototype.trackFrame.call(r, ms, budget);
+      };
+    },
     difficulties: Object.keys(DIFFICULTIES),
   };
 }
