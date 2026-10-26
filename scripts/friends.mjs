@@ -2,11 +2,13 @@
 // own, play a whole battle by clicking cells, the way players do. Every page must build the same table from the
 // room's log, no fleet may reach the room before the end, and both fleets must then be found as promised.
 //
-// It needs a p3p2 server (in the p3p2 repository: `npm run dev`, or the p3p2/p3p2 Docker image) and either a room
-// URL from its portal, or the portal's owner password to create one for the game's address:
+// It needs a p3p2 server (in the p3p2 repository: `npm run dev`, or the p3p2/p3p2 Docker image) and either a room's
+// invite link from its portal, or the portal's owner password to create a room for the game's address:
 //
 //   npm run build && npm run friends -- --server http://127.0.0.1:8080        (P3P2_OWNER_PASSWORD=… in the env)
-//   npm run friends -- --room 'http://127.0.0.1:8080/r/…' --url http://localhost:5173
+//   npm run friends -- --invite 'http://localhost:5173/?room=http://127.0.0.1:8080/…' --url http://localhost:5173
+//
+// Everybody comes in by the invite, as players do: the first one in is the host.
 //
 // Options: --headed, --speed 3, --video, --via <origin> (the room through another address: p3p2's lag proxy, say),
 // --engines (Grace in Firefox and the watcher in WebKit on an iPhone's screen,
@@ -25,10 +27,10 @@ const flag = (name) => args.includes(`--${name}`);
 const SPEED = Number(opt('speed', 3));
 const PORTAL = opt('server', '');
 const PASSWORD = opt('password', process.env.P3P2_OWNER_PASSWORD ?? '');
-let ROOM = opt('room', '');
+let INVITE = opt('invite', '');
 let URL_BASE = opt('url', '');
-if (!ROOM && !(PORTAL && PASSWORD)) {
-  console.error('Give --room <room URL>, or --server <portal URL> with P3P2_OWNER_PASSWORD (or --password).');
+if (!INVITE && !(PORTAL && PASSWORD)) {
+  console.error('Give --invite <invite link>, or --server <portal URL> with P3P2_OWNER_PASSWORD (or --password).');
   process.exit(2);
 }
 
@@ -110,39 +112,53 @@ async function ready(p) {
   await p.page.waitForFunction(() => window.__bs?.ready === true, null, { timeout: 60000 });
 }
 
+/** The owner's side: a room for the game's address, and its invite link from the room's page in the portal. */
 async function createRoom() {
   const context = await browser.newContext();
   const portal = await context.newPage();
-  await portal.goto(`${PORTAL.replace(/\/+$/, '')}/`);
+  // Not the server's address: once a room is on its front page, that is the front page.
+  await portal.goto(`${PORTAL.replace(/\/+$/, '')}/login`);
   await portal.getByLabel('Password').fill(PASSWORD);
   await portal.getByRole('button', { name: 'Log in' }).click();
   await portal.getByLabel('Game URL').fill(`${URL_BASE}/`);
   await portal.getByLabel('Room name').fill(`Battleship ${stamp}`);
   await portal.getByRole('button', { name: 'Create room' }).click();
-  const url = portal.getByLabel('Room URL');
-  await url.waitFor({ timeout: 15000 });
-  const room = await url.inputValue();
+  await portal.getByRole('heading', { name: `Battleship ${stamp}` }).waitFor({ timeout: 15000 });
+  const link = portal.getByLabel('Invite link', { exact: true });
+  // A server before 0.2 makes no invite with the room: the owner creates it.
+  if (!(await link.isVisible())) await portal.getByRole('button', { name: 'Create invite' }).click();
+  const invite = await link.inputValue();
   await context.close();
-  return room;
+  return invite;
 }
+
+/** What an invite carries: `?room=<server>/<code>`, the server without `https://`, any other scheme written out. */
+const roomOf = (invite) => new URL(invite).searchParams.get('room') ?? '';
+/** The invite's server, as an origin. */
+const serverOf = (invite) => {
+  const s = roomOf(invite).replace(/\/[^/]*$/, '');
+  return new URL(/^[a-z]+:\/\//.test(s) ? s : `https://${s}`).origin;
+};
+/** The same invite through another address of its server: p3p2's lag proxy, say. */
+const through = (invite, origin) => {
+  const to = new URL(origin);
+  return invite.replace(/([?&]room=)[^&#]*\//, `$1${to.protocol === 'https:' ? to.host : to.origin}/`);
+};
 
 const panel = (p) => p.page.locator('p3p2-panel');
 const panelOpen = (p) => p.page.evaluate(() => document.querySelector('p3p2-panel')?.shadowRoot?.querySelector('section.card')?.hidden === false);
 const closePanel = (p) => panel(p).getByRole('button', { name: 'Close' }).click();
 
-/** "Play with a friend" on the title screen: hosts in the room, and returns the invite link. */
-async function host(p) {
-  await p.page.getByRole('button', { name: /Play with a friend/ }).click();
-  await p.page.getByLabel('Your name').fill(p.name);
-  await p.page.getByLabel('Room URL').fill(ROOM);
-  await until('the panel checks the room URL', () => p.page.getByRole('status').textContent(), (t) => t?.includes('✓'));
-  await p.page.getByRole('button', { name: 'Create a multiplayer game room for my friends' }).click();
+/** The first one in, by the invite like everybody: the first seat, and the game's 👥 has the link to pass on. */
+async function first(p, invite) {
+  await arrive(p, invite);
+  await until(`${p.name} takes the first seat`, () => seat(p), (s) => s === 0);
+  await p.page.locator('.hud [data-k="friends"]').click();
   const link = p.page.getByLabel('Invite link', { exact: true });
   await link.waitFor({ timeout: 15000 });
-  const invite = await link.inputValue();
+  const passOn = await link.inputValue();
+  if (roomOf(passOn) !== roomOf(invite)) fail(`${p.name}'s panel passes on ${passOn}, not the room's invite`);
   await closePanel(p);
-  await until(`${p.name} takes the first seat`, () => seat(p), (s) => s === 0);
-  return invite;
 }
 
 /** Opens the invite and says yes. */
@@ -187,9 +203,11 @@ async function fire(p, [r, c], how = 'click') {
 
 const players = [];
 try {
-  if (!ROOM) ROOM = await createRoom();
-  if (opt('via', '')) ROOM = ROOM.replace(new URL(ROOM).origin, new URL(opt('via')).origin);
-  ok(`room ${ROOM}`);
+  if (!INVITE) INVITE = await createRoom();
+  if (opt('via', '')) INVITE = through(INVITE, opt('via'));
+  ok(`invite ${INVITE}`);
+  // Opened at the game's test address, which the room's link to pass on is then made from.
+  const invite = `${GAME}&room=${roomOf(INVITE)}`;
 
   // An ordinary visit: nothing goes to any p3p2 server, and the room client is not loaded.
   const ada = await profile('Ada');
@@ -199,13 +217,13 @@ try {
   await ada.page.goto(GAME);
   await ready(ada);
   await sleep(1500);
-  const roomServer = new URL(ROOM).origin;
+  const roomServer = serverOf(INVITE);
   const leaked = requests.filter((u) => u.startsWith(roomServer) || /p3p2-(core|panel|qr|local)|\/play-|\/table-/.test(u));
   if (leaked.length) fail(`an ordinary visit loaded ${leaked.join(', ')}`);
   else ok('an ordinary visit asks no server anything and loads no room code');
 
-  const invite = await host(ada);
-  ok(`Ada hosts: ${invite}`);
+  await first(ada, invite);
+  ok('Ada opens the invite first and hosts; her 👥 has the same link to pass on');
   const grace = await profile('Grace', DESKTOP, flag('engines') ? await engine(firefox) : browser);
   players.push(grace);
   await arrive(grace, invite);
@@ -358,7 +376,7 @@ try {
   fail(`script error: ${e.message}`);
   for (const p of players) await p.page.screenshot({ path: `${outDir}/error-${p.name}.png` }).catch(() => {});
 } finally {
-  writeFileSync(`${outDir}/log.json`, JSON.stringify({ room: ROOM, problems }, null, 2));
+  writeFileSync(`${outDir}/log.json`, JSON.stringify({ invite: INVITE, problems }, null, 2));
   for (const p of players) await p.context.close().catch(() => {});
   await browser.close();
   for (const b of others) await b.close();

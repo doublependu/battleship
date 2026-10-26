@@ -21,7 +21,7 @@
     "deploy:dry": "npm run build && wrangler deploy --dry-run"
   },
   "dependencies": {
-    "@p3p2/client": "^0.1.1",
+    "@p3p2/client": "^0.2.0",
     "three": "^0.186.1"
   },
   "devDependencies": {

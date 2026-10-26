@@ -33,9 +33,10 @@ shows HEAD. `npm run deploy:dry` builds and validates without deploying.
 
 ## Play with a friend
 
-**👥 Play with a friend** (title screen, pause menu, or the button top right in a game) opens the
-[p3p2](https://github.com/doublependu/p3p2) panel. Paste a room URL from a p3p2 server, create the invite, and send
-the link or the QR code to a friend. The first two in the room are the admirals; anyone after them watches.
+A room is joined by its invite link, which the owner of a [p3p2](https://github.com/doublependu/p3p2) server sends
+out (or shows on the server's front page): open it, say your name, and you're in. **👥 Play with a friend** (title
+screen, pause menu, or the button top right in a game) opens p3p2's panel: who's here, chat, and the same link and its
+QR code to pass on. The first two in the room are the admirals; anyone after them watches.
 
 - **Each fleet stays in its own browser.** When an admiral is ready, the page puts a promise in the room (a SHA-256
   of the fleet and a random salt) and keeps the fleet in `localStorage`. The page answers every shot at its fleet
@@ -52,8 +53,9 @@ the link or the QR code to a friend. The first two in the room are the admirals;
 A room needs a p3p2 server: the [`p3p2/p3p2`](https://hub.docker.com/r/p3p2/p3p2) Docker image
 ([self-hosting](https://github.com/doublependu/p3p2/blob/main/docs/self-host.md)), whose owner creates rooms in its
 portal for the game's address. To try it on one machine, run a server from a p3p2 checkout (`npm run dev`, port 8080),
-create a room there for `http://<this machine's LAN address>:5173/`, and open the game with `npm run dev -- --host`
-in two browsers (or a private window). `npm run friends` plays a whole battle that way (below).
+create a room there for `http://<this machine's LAN address>:5173/`, start the game with `npm run dev -- --host`, and
+open the room's invite link in two browsers (or one and a private window: two tabs of one browser are one player).
+`npm run friends` plays a whole battle that way (below).
 
 ## Scripts
 
@@ -75,8 +77,9 @@ in two browsers (or a private window). `npm run friends` plays a whole battle th
 --url http://localhost:5173`. It needs `npm run build` first unless `--url` points at a running server.
 `--recaudio` captures the game's own audio and, if `ffmpeg` is installed, muxes it into `gameplay.webm`.
 
-`npm run friends` needs a p3p2 server and either `--room <room URL>`, or `--server <portal URL>` with
-`P3P2_OWNER_PASSWORD` set, to create a room for the game's address. It checks that every page builds the same table,
+`npm run friends` needs a p3p2 server and either `--invite <invite link>`, or `--server <portal URL>` with
+`P3P2_OWNER_PASSWORD` set, to create a room for the game's address. Everybody comes in by the invite, the first one
+in as the host. It checks that every page builds the same table,
 that no fleet reaches the room before the end, a reload, a shot at a closed page, Enter and T, the panel on a phone,
 and the next battle. Options: `--url` (default: the build, served on :4173), `--engines` (Firefox and WebKit at the
 table too), `--via <origin>` (through p3p2's lag proxy), `--speed 3`, `--headed`, `--video`.
