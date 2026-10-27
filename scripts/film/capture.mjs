@@ -4,9 +4,13 @@
 // What this desktop (GNOME on Wayland) needs, found by trying (ai/plan_3.md §4.2 and ai/next_3.md):
 // - The recording is of the real window, so the window is sized until the page inside it is exactly the size asked
 //   for: no viewport emulation, which the recording ignores.
-// - A window taller than the screen loses its bottom 56 page units (black in the recording). The game's area is then
-//   held above that, the same shape as asked, at the top left; the cut crops it out and scales it up a little. (A
-//   window made 56 units taller instead recorded at half the frame rate.)
+// - Once a tab records itself, Chrome puts its "sharing this tab" bar over the page: 56 page units off the page's
+//   height, while the recording keeps the size it started at, with a smeared strip at the bottom. So the capture
+//   starts first, the window is then made taller by the bar, and only then does the recorder start. One recording
+//   per browser: a browser shows a bar in each of its windows for each of its tabs being recorded.
+// - A window that would then be taller than the screen records at half the frame rate. There the game's area is
+//   held clear of the bar instead, the same shape as asked, at the top left; the cut crops it and scales it up a
+//   little.
 // - A phone's screen is a small page at a high pixel ratio (`--force-device-scale-factor`), so that a phone layout
 //   is recorded at 1080×1920.
 // - Not headless: headless Chrome here shows grey frames now and then (ai/next_2.md §3.1).
@@ -17,7 +21,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { chromium } from 'playwright';
 import { installCursor } from '../lib/human.mjs';
 
-/** Page units lost at the bottom of a window taller than the screen. */
+/** Page units that Chrome's "sharing this tab" bar takes from the page while it records itself. */
 const BAND = 56;
 
 /**
@@ -61,42 +65,49 @@ export async function openStudio({ scale = 1 } = {}) {
 
 /**
  * A window whose page is `width`×`height` page units, a profile of its own (so that two windows are two players).
- * Returns the page, and the part of the recording that is the page: { w, h } in pixels from the top left.
+ * Returns the page, the part of the recording that is the page ({ w, h } in pixels from the top left), and `fit()`,
+ * which sizes the window again until the page is the size asked for (null where the window must not grow).
  */
 export async function openWindow(browser, { width, height, touch = false, left = 0, top = 0 }) {
   const context = await browser.newContext({ viewport: null, hasTouch: touch });
   await installCursor(context);
   const page = await context.newPage();
   await page.goto('about:blank');
-  const cdp = await context.newCDPSession(page);
-  const { windowId } = await cdp.send('Browser.getWindowForTarget');
   const measure = () => page.evaluate(() => ({ iw: innerWidth, ih: innerHeight, ow: outerWidth, oh: outerHeight, sh: screen.height, dpr: devicePixelRatio }));
-  let m = await measure();
-  for (let i = 0; i < 5 && (m.iw !== width || m.ih !== height); i++) {
-    await cdp.send('Browser.setWindowBounds', { windowId, bounds: { left, top, width: m.ow + width - m.iw, height: m.oh + height - m.ih } });
-    await sleep(500);
-    m = await measure();
-  }
-  if (m.iw !== width || m.ih !== height) throw new Error(`the window's page is ${m.iw}×${m.ih}, not ${width}×${height}`);
-  // In pixels: with the pixel ratio forced, the screen's height comes in pixels, not page units.
-  const tall = (height + m.oh - m.ih) * m.dpr > m.sh;
+  const fit = async () => {
+    const cdp = await context.newCDPSession(page);
+    const { windowId } = await cdp.send('Browser.getWindowForTarget');
+    let m = await measure();
+    for (let i = 0; i < 5 && (m.iw !== width || m.ih !== height); i++) {
+      await cdp.send('Browser.setWindowBounds', { windowId, bounds: { left, top, width: m.ow + width - m.iw, height: m.oh + height - m.ih } });
+      await sleep(500);
+      m = await measure();
+    }
+    await cdp.detach();
+    if (m.iw !== width || m.ih !== height) throw new Error(`the window's page is ${m.iw}×${m.ih}, not ${width}×${height}`);
+    return m;
+  };
+  const m = await fit();
+  // With the bar, in pixels: with the pixel ratio forced, the screen's height comes in pixels, not page units. Less
+  // GNOME's top bar.
+  const tall = (height + BAND + m.oh - m.ih) * m.dpr > m.sh - 48;
   const area = tall ? { w: Math.round(((height - BAND) * width) / height), h: height - BAND } : { w: width, h: height };
   if (tall) {
-    // The game's area, and what is placed by the window's edges (the version, p3p2's button, the ribbon), inside it.
-    await context.addInitScript(([w, h, dw, dh]) => {
+    // The game's area, and what is placed by the window's edges (p3p2's button, the ribbon), inside it. The bar
+    // takes the rest of the page's height.
+    await context.addInitScript(([w, h, dw]) => {
       const style = () => {
         const s = document.createElement('style');
         s.textContent = `#app{right:auto!important;bottom:auto!important;width:${w}px!important;height:${h}px!important}` +
-          `#version,#fps{bottom:${dh + 6}px!important}p3p2-panel{right:${dw + 12}px!important}.fork{right:${dw}px!important}`;
+          `p3p2-panel{right:${dw + 12}px!important}.fork{right:${dw}px!important}`;
         document.documentElement.append(s);
       };
       if (document.documentElement) style();
       else addEventListener('DOMContentLoaded', style);
-    }, [area.w, area.h, width - area.w, height - area.h]);
+    }, [area.w, area.h, width - area.w]);
   }
-  await cdp.detach();
   // The recording can come out a pixel or two narrower than the page: the cut crops to what is there.
-  return { context, page, dpr: m.dpr, crop: { w: Math.round(area.w * m.dpr), h: Math.round(area.h * m.dpr) } };
+  return { context, page, dpr: m.dpr, crop: { w: Math.round(area.w * m.dpr), h: Math.round(area.h * m.dpr) }, fit: tall ? null : fit };
 }
 
 /** Sound on: any key unlocks it (the game's rule for a first gesture); then the game's mix is there to record. */
@@ -106,22 +117,30 @@ export async function soundOn(page) {
 }
 
 /**
- * Starts recording the page into `file` (H.264 + Opus in MP4). Resolves to { stop() } once it has started;
- * `stop()` resolves to { file, startedAt } with the wall-clock time of the recording's first frame, in ms.
+ * Starts recording the page into `file` (H.264 + Opus in MP4), `fit` being the window's (`openWindow`). Resolves to
+ * { stop() } once it has started; `stop()` resolves to { file, startedAt } with the wall-clock time of the
+ * recording's first frame, in ms.
  */
-export async function record(page, file) {
+export async function record(page, file, fit = null) {
   const { port, files } = await startSink();
   const id = `rec-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const out = createWriteStream(file);
   files.set(id, out);
   await page.evaluate((to) => {
-    window.__filmStart = async () => {
+    // The capture first: Chrome's bar comes with it.
+    window.__filmCapture = async () => {
       const w = Math.round(innerWidth * devicePixelRatio);
       const h = Math.round(innerHeight * devicePixelRatio);
-      const screen = await navigator.mediaDevices.getDisplayMedia({
+      window.__filmScreen = await navigator.mediaDevices.getDisplayMedia({
         video: { frameRate: { ideal: 60, max: 60 }, width: { ideal: w }, height: { ideal: h }, resizeMode: 'none' },
         audio: false, preferCurrentTab: true, selfBrowserSurface: 'include', surfaceSwitching: 'exclude',
       });
+    };
+    // Then, the page its own size again, the recording.
+    window.__filmStart = async () => {
+      const screen = window.__filmScreen;
+      const w = Math.round(innerWidth * devicePixelRatio);
+      const h = Math.round(innerHeight * devicePixelRatio);
       // The game's own mix, in stereo (the tab's sound would be mono).
       const sound = window.__bs?.film.audioStream();
       const stream = new MediaStream([...screen.getVideoTracks(), ...(sound ? sound.getAudioTracks() : [])]);
@@ -150,10 +169,14 @@ export async function record(page, file) {
   }, `http://127.0.0.1:${port}/${id}`);
   // getDisplayMedia needs a user's gesture: the call is made as one, with no click on the page.
   const cdp = await page.context().newCDPSession(page);
-  const { result, exceptionDetails } = await cdp.send('Runtime.evaluate', { expression: 'window.__filmStart()', userGesture: true, awaitPromise: true, returnByValue: true });
+  const { exceptionDetails } = await cdp.send('Runtime.evaluate', { expression: 'window.__filmCapture()', userGesture: true, awaitPromise: true });
   await cdp.detach();
   if (exceptionDetails) throw new Error(`recording did not start: ${exceptionDetails.exception?.description ?? exceptionDetails.text}`);
-  const info = result.value;
+  // The bar is there now: the window grows by it, so that the page fills the captured frames again.
+  await sleep(700);
+  if (fit) await fit();
+  await sleep(500);
+  const info = await page.evaluate(() => window.__filmStart());
   if (!info.sound) console.warn(`  (no game sound in ${file}: sound was not on)`);
   return {
     info,

@@ -28,9 +28,9 @@ async function stage(browser, size, url, { quality = 'ultra' } = {}) {
   return w;
 }
 
-/** Recording, with markers: `mark(kind, data)` notes what happened now. */
-async function rolling(page, file) {
-  const rec = await record(page, file);
+/** Recording the window's page (`stage`), with markers: `mark(kind, data)` notes what happened now. */
+async function rolling({ page, fit }, file) {
+  const rec = await record(page, file, fit);
   const markers = [];
   const mark = (kind, data = {}) => {
     const at = (Date.now() - rec.info.startedAt) / 1000;
@@ -173,8 +173,9 @@ async function battle(page, human, { seed, touch, mark, closeups = true, maxShot
 async function sea({ url, dir }) {
   const browser = await openStudio();
   try {
-    const { page } = await stage(browser, DESKTOP, `${url}&quality=ultra`);
-    const take = await rolling(page, `${dir}/sea.mp4`);
+    const w = await stage(browser, DESKTOP, `${url}&quality=ultra`);
+    const { page } = w;
+    const take = await rolling(w, `${dir}/sea.mp4`);
     take.mark('title');
     await sleep(9000);
     // The sea alone, without the menus: low over the water, turning.
@@ -203,9 +204,10 @@ async function sea({ url, dir }) {
 async function battleAi({ url, dir, seed }) {
   const browser = await openStudio();
   try {
-    const { page } = await stage(browser, DESKTOP, `${url}&seed=${seed}&quality=ultra`);
+    const w = await stage(browser, DESKTOP, `${url}&seed=${seed}&quality=ultra`);
+    const { page } = w;
     const human = createHuman(page, { rng: createRng(seed ^ 0x5eed).next });
-    const take = await rolling(page, `${dir}/battle-ai.mp4`);
+    const take = await rolling(w, `${dir}/battle-ai.mp4`);
     take.mark('title');
     await battle(page, human, { seed, touch: false, mark: take.mark });
     await sleep(7000); // the end screen and its music
@@ -221,7 +223,8 @@ async function battleAi({ url, dir, seed }) {
 async function tiers({ url, dir, seed }) {
   const browser = await openStudio();
   try {
-    const { page } = await stage(browser, DESKTOP, `${url}&seed=${seed + 1}`, { quality: null });
+    const w = await stage(browser, DESKTOP, `${url}&seed=${seed + 1}`, { quality: null });
+    const { page } = w;
     const human = createHuman(page, { rng: createRng(seed).next, pace: 0.7 });
     // Into a battle quickly, at speed, until some ships burn on both sides; then at a normal pace.
     await bs(page, '__bs.setSpeed(4)');
@@ -247,7 +250,7 @@ async function tiers({ url, dir, seed }) {
     await waitFor(page, '__bs.idle');
     await bs(page, '__bs.setSpeed(1)');
     await sleep(1500);
-    const take = await rolling(page, `${dir}/tiers.mp4`);
+    const take = await rolling(w, `${dir}/tiers.mp4`);
     for (const tier of ['low', 'medium', 'high', 'ultra']) {
       await human.think('look');
       await human.pressElement('[data-k="pause"]');
@@ -280,9 +283,10 @@ async function tiers({ url, dir, seed }) {
 async function phone({ url, dir, seed }) {
   const browser = await openStudio({ scale: PHONE.scale });
   try {
-    const { page, crop } = await stage(browser, PHONE, `${url}&seed=${seed}&quality=ultra`);
+    const w = await stage(browser, PHONE, `${url}&seed=${seed}&quality=ultra`);
+    const { page, crop } = w;
     const human = createHuman(page, { touch: true, rng: createRng(seed ^ 0x5eed).next, pace: 0.8 });
-    const take = await rolling(page, `${dir}/phone.mp4`);
+    const take = await rolling(w, `${dir}/phone.mp4`);
     take.mark('title');
     await battle(page, human, { seed, touch: true, mark: take.mark });
     await sleep(8000);
@@ -297,9 +301,10 @@ async function phone({ url, dir, seed }) {
 async function phoneSideways({ url, dir, seed }) {
   const browser = await openStudio({ scale: PHONE_SIDEWAYS.scale });
   try {
-    const { page, crop } = await stage(browser, PHONE_SIDEWAYS, `${url}&seed=${seed + 2}&quality=ultra`);
+    const w = await stage(browser, PHONE_SIDEWAYS, `${url}&seed=${seed + 2}&quality=ultra`);
+    const { page, crop } = w;
     const human = createHuman(page, { touch: true, rng: createRng(seed + 2).next, pace: 0.8 });
-    const take = await rolling(page, `${dir}/phone-sideways.mp4`);
+    const take = await rolling(w, `${dir}/phone-sideways.mp4`);
     take.mark('title');
     await battle(page, human, { seed: seed + 2, touch: true, mark: take.mark, closeups: false, maxShots: 9 });
     await sleep(2000);
@@ -342,7 +347,8 @@ async function friends({ url, dir, server, password }) {
   const room = new URL(invite).searchParams.get('room');
   const link = `${url}&quality=high&room=${room}`;
   const size = { width: 500, height: 889, touch: true };
-  const browser = await openStudio({ scale: 1.2 });
+  // A browser each: a browser shows a "sharing this tab" bar in each of its windows for each tab that records itself.
+  const browsers = [];
   const people = [];
   const t0 = Date.now();
   const markers = [];
@@ -364,6 +370,8 @@ async function friends({ url, dir, server, password }) {
   };
   /** A phone opens the invite, records, and says yes. */
   async function arrive(name, left, rng) {
+    const browser = await openStudio({ scale: 1.2 });
+    browsers.push(browser);
     const w = await openWindow(browser, { ...size, left, top: 0 });
     const p = { name, ...w, human: createHuman(w.page, { touch: true, rng, pace: 0.7 }) };
     people.push(p);
@@ -373,7 +381,7 @@ async function friends({ url, dir, server, password }) {
     // Sound on with a tap on the sea, before p3p2's question takes the keys.
     await p.page.touchscreen.tap(40, 520);
     await waitFor(p.page, '__bs.audio.state === "running" && !!__bs.film.audioStream()', 20000);
-    p.rec = await record(p.page, `${dir}/friends-${name.toLowerCase()}.mp4`);
+    p.rec = await record(p.page, `${dir}/friends-${name.toLowerCase()}.mp4`, p.fit);
     const join = p.page.getByRole('button', { name: 'Join', exact: true });
     await until(() => join.isEnabled().catch(() => false), Boolean);
     mark('asked to join', { who: name });
@@ -486,7 +494,7 @@ async function friends({ url, dir, server, password }) {
     }
     return { name: 'friends', t0, markers, recordings };
   } finally {
-    await browser.close();
+    for (const b of browsers) await b.close();
   }
 }
 

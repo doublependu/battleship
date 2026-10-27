@@ -4,12 +4,13 @@
 // the cut's frame, with a caption at times. Segments are encoded one by one at the same size, rate and sound
 // format, joined, and encoded once more with the loudness at −14 LUFS (YouTube's and X's level).
 // Captions and cards are HTML, drawn into transparent PNGs by Playwright: no font files for ffmpeg to find.
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright';
 
-const GAME = 'ch0.maize.live';
+// No address for the game in the video: it goes in the description, where it can still change (ai/plan_3.md §7.7).
+const GAME = '<the game\'s address>';
 const REPO = 'github.com/doublependu/battleship';
 const FPS = 60;
 
@@ -73,7 +74,7 @@ async function painter(dir, w, h) {
     end() {
       const s = tall ? 1.15 : 1;
       return this.png(`<div class="end" style="font-size:${Math.round(44 * s)}px"><div style="font-weight:800;font-size:${Math.round(64 * s)}px">Play free in your browser</div>` +
-        `<div class="url" style="font-size:${Math.round(96 * s)}px">${GAME}</div>` +
+        `<div class="url" style="font-size:${Math.round(96 * s)}px">Link in the description</div>` +
         `<div class="small" style="margin-top:1em">Fork it: ${REPO}</div>` +
         `<div class="small">More games on Maize.Live · YouTube @RadWebGame</div></div>`);
     },
@@ -89,7 +90,8 @@ async function painter(dir, w, h) {
 
 /**
  * Encodes one segment: `src` from `from` to `to` (seconds), fitted to w×h. `crop` is the part of the recording
- * that is the page; `fit` 'fill' (same shape), or 'pillar' (an upright phone on a wide frame, over a blur of itself).
+ * that is the page, from the top left (or from `x`, `y`); `fit` 'fill' (same shape), or 'pillar' (an upright phone on a
+ * wide frame, over a blur of itself).
  * `caps`: [{ png, from, to }] in the segment's own seconds. `fade`: seconds of fade from and to black.
  */
 function segment(out, { src: raw, from, to, crop, fit = 'fill', caps = [], fade = 0, mute = false }, w, h) {
@@ -98,7 +100,7 @@ function segment(out, { src: raw, from, to, crop, fit = 'fill', caps = [], fade 
   const inputs = ['-ss', from.toFixed(3), '-t', len.toFixed(3), '-i', src];
   for (const c of caps) inputs.push('-loop', '1', '-t', len.toFixed(3), '-i', c.png);
   const f = [];
-  const pre = crop ? `crop='min(iw,${crop.w})':'min(ih,${crop.h})':0:0,` : '';
+  const pre = crop ? `crop='min(iw,${crop.w})':'min(ih,${crop.h})':${crop.x ?? 0}:${crop.y ?? 0},` : '';
   if (fit === 'pillar') {
     f.push(`[0:v]${pre}split[a][b]`, `[a]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=28:2,eq=brightness=-0.12[bg]`,
       `[b]scale=-2:${h}:flags=lanczos[fg]`, `[bg][fg]overlay=(W-w)/2:0,fps=${FPS},setsar=1[v0]`);
@@ -174,14 +176,32 @@ function trio(out, { take, from, to, caps = [], labels, sea }, w, h) {
   return len;
 }
 
+/** The loudness (LUFS) of the joined parts' sound after the filters `af`. */
+function loudness(list, af = '') {
+  const { stderr } = spawnSync('ffmpeg', ['-hide_banner', '-nostats', '-f', 'concat', '-safe', '0', '-i', list, '-vn',
+    '-af', `${af ? `${af},` : ''}loudnorm=print_format=json`, '-f', 'null', '-'], { encoding: 'utf8', maxBuffer: 1 << 26 });
+  return Number(JSON.parse(stderr.slice(stderr.lastIndexOf('{'), stderr.lastIndexOf('}') + 1)).input_i);
+}
+
+/** One gain for the whole, then a limiter 3 dB under full scale, at 4× the rate so that it sees the peaks between samples. */
+const level = (gain) => `volume=${gain.toFixed(2)}dB,aresample=192000,alimiter=limit=0.708:attack=5:release=80:level=false,aresample=48000`;
+
 /** Joins the segments and makes the final file: H.264 high, AAC, −14 LUFS, ready to stream from the start. */
 function join(parts, out, dir) {
   const list = `${dir}/parts.txt`;
   // Paths in the list are taken from the list's own folder: give them whole.
   writeFileSync(list, parts.map((p) => `file '${resolve(p).replace(/'/g, "'\\''")}'`).join('\n'));
+  // The game's mix is quiet with loud explosions (about −23 LUFS, peaks at −1 dB): it takes about 9 dB, and the
+  // limiter on the explosions. The limiter takes some loudness back, so the gain is measured again, twice. (loudnorm
+  // alone rides the gain, falls short of −14, and its peaks came out over full scale once in AAC.)
+  let gain = -14 - loudness(list);
+  for (let k = 0; k < 2; k++) gain += -14 - loudness(list, level(gain));
   ffmpeg(['-f', 'concat', '-safe', '0', '-i', list, '-c:v', 'libx264', '-crf', '18', '-preset', 'slow', '-profile:v', 'high',
-    '-pix_fmt', 'yuv420p', '-r', String(FPS), '-af', 'loudnorm=I=-14:TP=-1.5:LRA=11', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000',
+    '-pix_fmt', 'yuv420p', '-r', String(FPS), '-af', level(gain), '-c:a', 'aac', '-b:a', '192k', '-ar', '48000',
     '-movflags', '+faststart', out]);
+  const { stderr } = spawnSync('ffmpeg', ['-hide_banner', '-nostats', '-i', out, '-vn', '-af', 'ebur128=peak=true', '-f', 'null', '-'], { encoding: 'utf8', maxBuffer: 1 << 26 });
+  const summary = stderr.slice(stderr.lastIndexOf('Summary:'));
+  console.log(`  sound: ${/I:\s+(-?[\d.]+) LUFS/.exec(summary)?.[1]} LUFS, true peak ${/Peak:\s+(-?[\d.]+) dBFS/.exec(summary)?.[1]} dBFS (gain ${gain.toFixed(1)} dB)`);
 }
 
 // ---------------------------------------------------------------- what to show, from the markers
@@ -207,7 +227,7 @@ function highlights(take, budget, { misses = 2, aiHits = true } = {}) {
   const total = (list) => merge(list).reduce((t, w) => t + w.to - w.from, 0);
   let keep = wins;
   for (let rank = 3; rank > 0 && total(keep) > budget; rank--) {
-    // Drop every other window of this rank, from the middle of the battle out, until it fits.
+    // Drop every other window of this rank, from the start of the battle on, until it fits; then the rest of it.
     const ranked = keep.filter((w) => w.rank === rank);
     for (let i = 0; i < ranked.length && total(keep) > budget; i += 2) keep = keep.filter((w) => w !== ranked[i]);
     if (total(keep) > budget) keep = keep.filter((w) => w.rank !== rank);
@@ -311,8 +331,10 @@ async function youtube({ dir, takes }) {
     const side = takes['phone-sideways'];
     const up = takes.phone;
     if (side) {
+      // Placement, up to the battle: the phone's first frame of the battle can hold for a quarter of a second.
       const pl = first(side, 'placement');
-      add({ src: side.file, crop: side.crop, from: pl.at - 0.5, to: pl.at + 11, caps: [
+      const go = first(side, 'battle');
+      add({ src: side.file, crop: side.crop, from: pl.at - 0.5, to: Math.min(go?.at ?? Infinity, pl.at + 11), caps: [
         { png: await p.caption('Phones and tablets', 'the same game, laid out for the screen'), from: 0.5, to: 6 },
       ] }, 'On a phone');
     }
@@ -383,16 +405,20 @@ function trioLabels(fr, w, h) {
 }
 
 function describe(chapters, total) {
-  const lines = chapters.filter((c, i) => i === 0 || c.at - chapters[i - 1].at >= 10).map((c, i) => `${fmt(i === 0 ? 0 : c.at)} ${c.title}`);
+  // YouTube shows chapters only if every one is 10 s or more, the last one too.
+  const kept = [];
+  for (const c of chapters) if (!kept.length || c.at - kept.at(-1).at >= 10) kept.push(c);
+  while (kept.length > 1 && total - kept.at(-1).at < 10) kept.pop();
+  const lines = kept.map((c, i) => `${fmt(i === 0 ? 0 : c.at)} ${c.title}`);
   return `Title: Battleship on real water: free, in your browser (three.js)
 
 Description:
 Classic Battleship in 3D, on an interactive water simulation, with explosions, fires and ships that go down.
 Play against the AI (Recruit, Captain or Admiral) or with a friend by sending a link. No install and no downloads:
-the ships, the sound and the music are all made in the browser, so it is ready in well under a second, on a
+the ships, the sound and the music are all made in the browser, so it is ready in under a second, on a
 desktop or a phone.
 
-Play: https://${GAME}
+Play: ${GAME}
 Source (GPL-3.0, fork it): https://${REPO}
 Multiplayer: p3p2, https://p3p2.me
 Water adapted from threejs-water by Yong Su (MIT), a port of WebGL Water by Evan Wallace.
@@ -426,13 +452,17 @@ async function short({ dir, takes }) {
     add({ from: sink.at - 0.2, to: sink.at + 4.6, caps: [{ png: await p.caption('Battleship, on real water', 'free, in your browser'), from: 0.2, to: 4.6 }] });
     const pl = first(up, 'placement');
     const battle = first(up, 'battle');
-    add({ from: pl.at + 0.8, to: Math.min(battle.at + 0.5, pl.at + 8), caps: [{ png: await p.caption('Drag your ships into place'), from: 0.2, to: 5 }] });
+    add({ from: pl.at + 0.8, to: Math.min(battle.at, pl.at + 8), caps: [{ png: await p.caption('Drag your ships into place'), from: 0.2, to: 5 }] });
     const wins = highlights(up, 30, { misses: 1, aiHits: false }).filter((w) => !(w.from <= sink.at && w.to >= sink.at));
     const mid = await p.caption('Hits burn. Ships sink.', 'sound and music made as you play');
     wins.forEach((w, i) => add({ from: w.from, to: w.to, caps: i === 1 ? [{ png: mid, from: 0.2, to: Math.min(4, w.to - w.from) }] : [] }));
     const over = first(up, 'over');
     add({ from: over.at - 0.3, to: over.at + 6 });
-    add({ from: 1, to: 5.5, caps: [{ png: await p.end(), from: 0.2, to: 5.5 }], fade: 0.3 });
+    // The end card over the open sea: the middle of the sea take, upright. Without it, over the phone's title screen.
+    const calm = takes.sea && first(takes.sea, 'clean-close');
+    const card = { caps: [{ png: await p.end(), from: 0.2, to: 5.5 }], fade: 0.3 };
+    if (calm) add({ src: takes.sea.file, crop: { w: 608, h: 1080, x: 656, y: 0 }, from: calm.at + 0.5, to: calm.at + 6, ...card });
+    else add({ from: 1, to: 5.5, ...card });
     const out = `${dir}/short.mp4`;
     join(parts, out, work);
     if (duration(out) > 60) console.warn(`  (the Short is ${duration(out).toFixed(1)} s: over 60 s)`);

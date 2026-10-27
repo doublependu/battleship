@@ -80,25 +80,27 @@ open the room's invite link in two browsers (or one and a private window: two ta
 `npm run play` options: `--games N --device desktop|pixel7|iphone13|tablet --difficulty easy|normal|hard
 --quality auto|low|medium|high|ultra --rotate --switch-quality --recaudio --speed 3 --headed --seed N
 --url http://localhost:5173 --human`. `--human` plays at a person's pace: the mouse travels to each cell and hovers
-before it clicks, the player stops to think between shots, and the cursor and taps are drawn into the recording. It needs `npm run build` first unless `--url` points at a running server.
+before it clicks, the player stops to think between shots, and the cursor and taps are drawn into the recording. It
+needs `npm run build` first unless `--url` points at a running server.
 `--recaudio` captures the game's own audio and, if `ffmpeg` is installed, muxes it into `gameplay.webm`.
 
 `npm run friends` needs a p3p2 server and either `--invite <invite link>`, or `--server <portal URL>` with
 `P3P2_OWNER_PASSWORD` set, to create a room for the game's address. Everybody comes in by the invite, the first one
-in as the host. It checks that every page builds the same table,
-that no fleet reaches the room before the end, a reload, a shot at a closed page, Enter and T, p3p2's button (the
-count, unread chat), the panel on a phone, and the next battles: the watcher, who asked to play, takes the loser's seat;
-with nobody waiting the two change places; and somebody who leaves is taken out of the line. Options: `--url` (default: the build, served on :4173), `--engines` (Firefox and WebKit at the
-table too), `--via <origin>` (through p3p2's lag proxy), `--speed 3`, `--headed`, `--video`.
+in as the host. It checks that every page builds the same table, that no fleet reaches the room before the end, a
+reload, a shot at a closed page, Enter and T, p3p2's button (the count, unread chat), the panel on a phone, and the
+next battles: the watcher, who asked to play, takes the loser's seat; with nobody waiting the two change places; and
+somebody who leaves is taken out of the line. Options: `--url` (default: the build, served on :4173), `--engines`
+(Firefox and WebKit at the table too), `--via <origin>` (through p3p2's lag proxy), `--speed 3`, `--headed`, `--video`.
 
 `npm run film` (after `npm run build`) records takes in headed Chrome, which records its own tab (canvas, HUD and the
 game's stereo sound, about 57 fps at 1080p on an RTX 3060), then cuts them with `ffmpeg` into `youtube.mp4` (about
 5 min, 1920×1080, with `youtube.txt`: title, description, chapters), `short.mp4` (1080×1920, under a minute),
-`x.mp4` (about 45 s) and `thumbnail.png`, in `recordings/film-<stamp>/`. The takes need the desktop for about
-20 minutes, with their windows in front. Options:
-- `--cast 20`: first pick the seed of a close win against Captain
-- `--takes battle-ai,tiers`: record only those again
-- `--cut youtube|short|x --from recordings/film-…`: cut again from takes already recorded
+`x.mp4` (about a minute) and `thumbnail.png`, in `recordings/film-<stamp>/`. The takes need the desktop for about
+20 minutes, with their windows in front. The videos name no address for the game: the end card says "Link in the
+description", and `youtube.txt` has a placeholder for it. Options:
+- `--cast 20`: first pick the seed of a close win against Captain; `--seed 8` plays that seed's battle
+- `--takes battle-ai,tiers`: record only those again (into the latest film)
+- `--cut youtube|short|x|none --from recordings/film-…`: cut again from takes already recorded
 - `--server <portal URL>` with `P3P2_OWNER_PASSWORD`: also the play-with-a-friend take (as for `npm run friends`)
 
 URL parameters: `?quality=low|medium|high|ultra` (force a graphics tier), `?stats` (fps, draw calls,

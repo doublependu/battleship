@@ -3,6 +3,7 @@
 //
 //   npm run build && npm run film                        every take, then every cut
 //   npm run film -- --cast 20                            first pick the battle's seed: a close win against Captain
+//   npm run film -- --seed 8 --cut none                  every take of that seed's battle, no cuts yet
 //   npm run film -- --takes battle-ai,tiers              those takes again (into the latest film folder)
 //   npm run film -- --cut youtube --from recordings/film-…   cut again from takes already there
 //
