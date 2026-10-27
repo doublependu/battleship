@@ -151,7 +151,9 @@ void main() {
   vec3 refl = textureCube(uSkyCube, reflected).rgb;
   vec2 ruv = projectUV(uReflectionVP, vec3(xz.x, 0.0, xz.y)) + n.xz * 0.045;
   vec4 mirror = texture2D(uReflection, clamp(ruv, 0.001, 0.999));
-  refl = mix(refl, mirror.rgb, mirror.a);
+  // Additive fire adds up its alpha past 1 in the half-float target: unclamped, the mix would overshoot the sky
+  // into colours of its own (yellow and purple fringes around an explosion).
+  refl = mix(refl, mirror.rgb, clamp(mirror.a, 0.0, 1.0));
 
   vec3 col = mix(refr, refl, fresnel);
   vec3 H = normalize(uSunDir + V);

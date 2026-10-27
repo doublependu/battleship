@@ -36,8 +36,9 @@
       .seg button[aria-checked=true]{background:#eef6fb;color:#0b2a40;font-weight:700}
       .primary{border:0;border-radius:12px;padding:14px 44px;font-size:20px;font-weight:800;letter-spacing:.06em;
         background:#ffd166;color:#13293d;box-shadow:0 6px 20px rgba(0,0,0,.35)}
-      .fork{position:fixed;top:0;right:0;width:150px;height:150px;overflow:hidden;z-index:30;pointer-events:none}
-      .fork a{position:absolute;top:36px;right:-46px;width:210px;transform:rotate(45deg);pointer-events:auto;
+      /* Further out than usual: p3p2's multiplayer button sits in the corner, inside the band. */
+      .fork{position:fixed;top:0;right:0;width:190px;height:190px;overflow:hidden;z-index:30;pointer-events:none}
+      .fork a{position:absolute;top:56px;right:-70px;width:296px;transform:rotate(45deg);pointer-events:auto;
         background:#a00;color:#fff;text-decoration:none;font:700 13px/2.2 system-ui,sans-serif;text-align:center;
         box-shadow:0 2px 8px rgba(0,0,0,.45);border-top:1px dashed rgba(255,255,255,.55);
         border-bottom:1px dashed rgba(255,255,255,.55);letter-spacing:.02em}
@@ -78,7 +79,7 @@
             <button role="radio" data-diff="hard" aria-checked="false">Admiral</button>
           </div>
           <p><button id="play" class="primary">PLAY</button></p>
-          <p class="friends"><button id="friends" class="btn ghost">👥 Play with a friend</button></p>
+          <p class="friends"><button id="friends" class="btn ghost">Play with a friend</button></p>
         </div>
         <p id="nowebgl" hidden>
           This game needs a browser with WebGL2 (any recent Chrome, Edge, Firefox or Safari). Please update your

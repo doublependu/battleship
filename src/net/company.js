@@ -6,15 +6,15 @@
 import { P3P2 } from '@p3p2/client';
 
 /** The format of the ops and the snapshot (`table.js`). A page with another one is kept out of the room. */
-export const TABLE_VERSION = '1';
+export const TABLE_VERSION = '2';
 
 export function openCompany(ctx) {
   const p3p2 = new P3P2({
     game: { id: 'battleship', version: TABLE_VERSION },
-    // The game's own 👥 button, top right, opens the panel there: top left are pause and sound, the status runs along
-    // the top, the buttons along the bottom, and the version is bottom left. Enter fires at the aimed cell, so chat
-    // opens with T.
-    ui: { corner: 'top-right', button: false, chatKey: 't' },
+    // p3p2's own button and panel, top right: top left are pause and sound, the status runs along the top, the
+    // buttons along the bottom, and the version is bottom left. "Play with a friend" in the menus opens the same
+    // panel. Enter fires at the aimed cell, so chat opens with T.
+    ui: { corner: 'top-right', chatKey: 't' },
   });
   /** `play.js` and `table.js`, loaded with the first room. */
   let net = null;
@@ -42,7 +42,31 @@ export function openCompany(ctx) {
       claim = { c };
       room.log.submit({ t: 'sit', c, name: room.self.name });
     },
+    /** To the end of the line of those who want to play (or to a free seat), and out of it again. */
+    line() { return !!room && room.log.submit({ t: 'line', name: room.self.name }); },
+    unline() { return !!room && room.log.submit({ t: 'unline' }); },
+    /** This room, for what this tab remembers about it. */
+    get key() { return room ? `${room.server}|${room.name}` : ''; },
   };
+
+  /** Pids already reported gone from the line, so that each is reported once. */
+  const reported = new Set();
+  /**
+   * Takes out of the line whoever has left the room: their own page cannot. The admirals' pages do it, or, with
+   * neither admiral in the room, the page of the first in line who is.
+   */
+  function tidy() {
+    if (!room || !table?.line.length) return;
+    const here = new Set(room.members.map((m) => m.pid));
+    const me = handle.me;
+    const present = table.line.filter((x) => here.has(x.pid));
+    const mine = table.seatOf(me) !== -1 || (!table.seats.some((pid) => pid && here.has(pid)) && present[0]?.pid === me);
+    if (!mine) return;
+    for (const x of table.line) {
+      if (here.has(x.pid) || reported.has(x.pid)) continue;
+      if (room.log.submit({ t: 'gone', pid: x.pid })) reported.add(x.pid);
+    }
+  }
 
   function sitIfFree() {
     if (!room || claim || table.seatOf(handle.me) !== -1) return;
@@ -78,14 +102,31 @@ export function openCompany(ctx) {
     await play.enter(handle);
     sitIfFree();
     for (const ev of ['member-join', 'member-leave', 'member-state']) r.on(ev, () => play?.status());
+    r.on('member-join', (m) => reported.delete(m.pid));
+    r.on('member-leave', () => tidy());
+    tidy();
   }
 
   function changed(what, entry) {
-    const mine = entry.pid === handle.me;
+    const me = handle.me;
+    const mine = entry.pid === me;
     const name = (c) => table.names[c] || 'An admiral';
-    if (what.t === 'sit' && !mine) ctx.hud.toast(`${name(what.c)} takes a seat`);
-    if (what.t === 'stand' && !mine) ctx.hud.toast(what.lost ? `${entry.from?.name || 'An admiral'} left the battle, and lost it` : `${entry.from?.name || 'An admiral'} left the table`);
-    if (what.t === 'new') ctx.hud.toast(`Battle ${what.n}: ${name(0)} fires first`);
+    const who = entry.from?.name || 'An admiral';
+    const toast = (text) => ctx.hud.toast(text[0].toUpperCase() + text.slice(1));
+    if (what.t === 'sit' && !mine) toast(`${name(what.c)} takes a seat`);
+    if (what.t === 'stand' && !mine) {
+      const next = what.next ? (table.seats[what.c] === me ? '; you take the seat' : `; ${what.next} takes the seat`) : '';
+      toast(`${who} ${what.lost ? 'left the battle, and lost it' : 'left the table'}${next}`);
+    }
+    if (what.t === 'line' && !mine && table.seatOf(me) !== -1) toast(`${who} wants to play next`);
+    if (what.t === 'new') {
+      const c = what.change;
+      const first = table.seats[0] === me ? 'you fire first' : `${table.names[0]} fires first`;
+      if (c?.left === me) toast(`Battle ${what.n}: ${c.in} takes your seat`);
+      else if (c?.took === me) toast(`Battle ${what.n}: your turn at the table, and ${first}`);
+      else if (c) toast(`Battle ${what.n}: ${c.in} takes ${c.out}'s seat, and ${first}`);
+      else toast(`Battle ${what.n}: ${first}`);
+    }
     play.changed(what);
   }
 
@@ -106,6 +147,8 @@ export function openCompany(ctx) {
       canFire: () => play?.canFire() ?? false,
       showing: () => play?.showing ?? false,
       mine: () => play?.mine?.fleet ?? null,
+      /** The question to a watcher, or where they are in the line: { ask, text }, or null. */
+      asking: () => play?.asking ?? null,
     };
   }
   return { open: () => p3p2.open() };

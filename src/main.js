@@ -139,7 +139,7 @@ const hud = new Hud(uiRoot, {
   startBattle: () => startBattle(),
   fire: () => S.touchAim && fireAt(S.touchAim.r, S.touchAim.c),
   peek: (side) => setView(side),
-  friends: () => company?.open(),
+  ask: (play) => S.room?.answer(play),
 });
 
 const settingsPanel = new SettingsPanel(uiRoot, {
@@ -787,6 +787,35 @@ if (E2E || import.meta.env.DEV) {
       };
     },
     difficulties: Object.keys(DIFFICULTIES),
+    /** For the film (`npm run film`): the camera, the resolution and the sound, while a take is recorded. */
+    film: {
+      /** The render resolution stays at 100%: recording costs a few frames, which must not step it down. */
+      holdResolution() {
+        r.trackFrame = () => null;
+        r.dprScale = 1;
+        r.resize(r.cssWidth, r.cssHeight);
+      },
+      /**
+       * Holds the camera on a cell of a board ({ side, r, c }) or a point ({ x, z }), from `dist` away, `pitch` and
+       * `yaw` in degrees, turning `spin` degrees a second; eased slowly from where it is.
+       */
+      look({ side, r: row, c: col, x = 0, z = 0, y = 0, dist = 12, pitch = 30, yaw = 0, spin = 0 }) {
+        const p = side ? cellCenter(side, row, col) : new THREE.Vector3(x, y, z);
+        const rad = THREE.MathUtils.degToRad;
+        r.rig.setFilm({ target: [p.x, y, p.z], dist, pitch: rad(pitch), yaw: rad(yaw), spin: rad(spin) });
+      },
+      /** The game's own framing again. */
+      release() {
+        r.rig.setFilm(null);
+      },
+      get looking() {
+        return !!r.rig.film;
+      },
+      /** The game's sound as a stereo MediaStream, once sound is on; null before. */
+      audioStream() {
+        return audio.engine?.tap() ?? null;
+      },
+    },
   };
 }
 

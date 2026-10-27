@@ -12,6 +12,7 @@
     "sim": "node scripts/sim.mjs",
     "play": "node scripts/play.mjs",
     "friends": "node scripts/friends.mjs",
+    "film": "node scripts/film.mjs",
     "loadtime": "node scripts/loadtime.mjs",
     "perf": "node scripts/perf.mjs",
     "probe": "node scripts/probe.mjs",

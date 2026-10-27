@@ -1,6 +1,6 @@
 // Title menu, pause screen and game-over screen, alone or in a room. The title markup is inline in index.html.
 import { DIFFICULTIES, TIERS } from '../config.js';
-import { ICONS } from './icons.js';
+import { ICONS, P3P2_MARK } from './icons.js';
 
 export class Overlays {
   constructor(root, actions) {
@@ -26,7 +26,9 @@ export class Overlays {
       if (v) actions.setDifficulty(v);
     });
     document.getElementById('play').addEventListener('click', () => actions.play());
-    document.getElementById('friends').addEventListener('click', () => actions.friends());
+    const friends = document.getElementById('friends');
+    friends.insertAdjacentHTML('afterbegin', P3P2_MARK);
+    friends.addEventListener('click', () => actions.friends());
 
     this.pause = document.createElement('div');
     this.pause.className = 'overlay';
@@ -38,8 +40,10 @@ export class Overlays {
           <button class="btn go" data-k="resume">Resume</button>
           <button class="btn" data-k="settings">Settings</button>
           <button class="btn" data-k="restart">Restart</button>
-          <button class="btn" data-k="friends">👥 Play with a friend</button>
+          <button class="btn" data-k="friends">${P3P2_MARK}Play with a friend</button>
           <button class="btn" data-k="room-sit" hidden>Take the free seat</button>
+          <button class="btn" data-k="room-line" hidden>Play next</button>
+          <button class="btn" data-k="room-unline" hidden>Just watch</button>
           <button class="btn" data-k="room-next" hidden>Next battle</button>
           <button class="btn" data-k="room-resign" hidden>Resign</button>
           <button class="btn" data-k="room-stand" hidden>Leave the table</button>
@@ -57,7 +61,7 @@ export class Overlays {
     pq('settings').addEventListener('click', () => actions.openSettings());
     pq('restart').addEventListener('click', () => actions.restart());
     pq('friends').addEventListener('click', () => actions.friends());
-    for (const what of ['sit', 'next', 'resign', 'stand']) pq(`room-${what}`).addEventListener('click', () => actions.room(what));
+    for (const what of ['sit', 'line', 'unline', 'next', 'resign', 'stand']) pq(`room-${what}`).addEventListener('click', () => actions.room(what));
     this.pq = pq;
     pq('diff').addEventListener('click', (e) => {
       const v = e.target.closest('button')?.dataset.diff;
@@ -149,6 +153,8 @@ export class Overlays {
     pq('diff').hidden = !!menu;
     pq('diff-title').hidden = !!menu;
     pq('room-sit').hidden = !menu?.canSit;
+    pq('room-line').hidden = !menu?.canLine;
+    pq('room-unline').hidden = !menu?.canUnline;
     pq('room-next').hidden = !menu?.canNext;
     pq('room-resign').hidden = !menu?.canResign;
     pq('room-stand').hidden = !menu?.canStand;

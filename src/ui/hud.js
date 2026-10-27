@@ -1,5 +1,5 @@
-// In-game HUD: status line, remaining fleets, pause/mute/friends buttons, placement bar, board tabs, Fire button,
-// toast and FPS readout. Reports its occupied heights so the camera keeps the boards clear of it.
+// In-game HUD: status line, remaining fleets, pause/mute buttons, placement bar, board tabs, Fire button, the
+// watcher's question in a room, toast and FPS readout. Reports its occupied heights so the camera keeps the boards clear of it.
 import { FLEET } from '../config.js';
 import { ICONS } from './icons.js';
 
@@ -22,10 +22,14 @@ export class Hud {
         <button class="icon" data-k="pause" aria-label="Pause">${ICONS.pause}</button>
         <button class="icon" data-k="mute" aria-label="Mute">${ICONS.soundOn}</button>
       </div>
-      <div class="iconbar right">
-        <button class="icon" data-k="friends" aria-label="Play with a friend" title="Play with a friend">${ICONS.people}</button>
-      </div>
       <div class="bottombar">
+        <div class="ask" data-k="ask" hidden>
+          <p data-k="ask-text"></p>
+          <div class="row">
+            <button class="btn go" data-k="ask-play">Play next</button>
+            <button class="btn ghost" data-k="ask-watch">Just watch</button>
+          </div>
+        </div>
         <div data-k="placement" hidden>
           <p class="hint">Drag a ship to move it · tap a ship to rotate it</p>
           <div class="row">
@@ -62,7 +66,8 @@ export class Hud {
     on('rotate', () => actions.rotate());
     on('start', () => actions.startBattle());
     on('fire', () => actions.fire());
-    on('friends', () => actions.friends());
+    on('ask-play', () => actions.ask(true));
+    on('ask-watch', () => actions.ask(false));
     q('tabs').addEventListener('click', (e) => {
       const v = e.target.closest('button')?.dataset.v;
       if (v) actions.peek(v);
@@ -128,6 +133,14 @@ export class Hud {
     for (const b of tabs.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.v === active));
   }
 
+  /** A watcher in a room: { ask, text } asks whether to play (or says where they are in line); null hides it. */
+  setAsk(state) {
+    this.q('ask').hidden = !state;
+    if (!state) return;
+    this.q('ask-text').textContent = state.text;
+    this.q('ask-play').hidden = !state.ask;
+  }
+
   setFireVisible(on) {
     this.q('fire').hidden = !on;
   }
@@ -161,6 +174,8 @@ export class Hud {
     let bottom = 16 + sab;
     if (mode === 'placement') bottom = (narrow && innerWidth < 380 ? 132 : short ? 84 : 92) + sab;
     else if (tabs) bottom = (short ? 58 : 70) + sab;
+    const ask = this.q('ask');
+    if (!ask.hidden) bottom += ask.offsetHeight + 8;
     return { top, bottom, left: 10, right: 10 };
   }
 }

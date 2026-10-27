@@ -1,4 +1,5 @@
-// The table in a room: two admirals, their promises about their fleets, and the shots and answers between them.
+// The table in a room: two admirals, their promises about their fleets, the shots and answers between them, and the
+// line of watchers who want to play next: after a battle the winner stays, and the loser's seat goes to the first in line.
 //
 // Built from the room's log alone, op by op, so that every page that reads the same log has the same table. No
 // fleet is ever in it until the game is over: each page keeps its own (see `play.js`) and answers the shots at
@@ -80,6 +81,7 @@ export class Table {
     this.n = 1;
     this.seats = [null, null];
     this.names = ['', ''];
+    this.line = [];
     this.fresh();
     this.history = [];
     const s = state && typeof state === 'object' ? state : null;
@@ -96,6 +98,10 @@ export class Table {
     this.reveals = [0, 1].map((c) => (s.reveals?.[c] && isFleet(s.reveals[c].fleet) ? s.reveals[c] : null));
     this.verdicts = [0, 1].map((c) => (s.verdicts?.[c] === 'kept' || s.verdicts?.[c] === 'broken' ? s.verdicts[c] : null));
     this.history = Array.isArray(s.history) ? s.history.slice(-HISTORY) : [];
+    // From format 2: the line, who lost the battle, and who fought it.
+    this.line = Array.isArray(s.line) ? s.line.filter((x) => typeof x?.pid === 'string' && x.pid).map((x) => ({ pid: x.pid, name: cleanName(x.name) })) : [];
+    this.loser = typeof s.loser === 'string' ? s.loser : null;
+    this.fought = Array.isArray(s.fought) && s.fought.length === 2 ? s.fought.map((x) => (typeof x === 'string' ? x : null)) : null;
   }
 
   /** A new game on the same table: no promises, no shots. */
@@ -108,6 +114,10 @@ export class Table {
     this.how = null;
     this.reveals = [null, null];
     this.verdicts = [null, null];
+    /** Who lost this battle, by pid: the seat that goes to the line, if it is still theirs at the next battle. */
+    this.loser = null;
+    /** Who fought this battle, by seat, as it began: whoever was not in it fires first in the next. */
+    this.fought = null;
   }
 
   save() {
@@ -115,11 +125,26 @@ export class Table {
       n: this.n, seats: this.seats.slice(), names: this.names.slice(), commits: this.commits.slice(),
       shots: this.shots.map((list) => list.map((x) => ({ ...x }))), turn: this.turn, pending: this.pending,
       winner: this.winner, how: this.how, reveals: this.reveals.slice(), verdicts: this.verdicts.slice(), history: this.history.slice(),
+      line: this.line.map((x) => ({ ...x })), loser: this.loser, fought: this.fought?.slice() ?? null,
     };
   }
 
   seatOf(pid) {
     return pid ? this.seats.indexOf(pid) : -1;
+  }
+
+  /** Where a pid is in the line: 0 for the next to play, or -1. */
+  placeOf(pid) {
+    return pid ? this.line.findIndex((x) => x.pid === pid) : -1;
+  }
+
+  /** A seat that has just been left goes to the first in line, if there is anybody: a free seat never waits. */
+  fill(c) {
+    const next = this.line.shift();
+    if (!next) return null;
+    this.seats[c] = next.pid;
+    this.names[c] = next.name;
+    return next;
   }
 
   /** placing: one or both admirals are still placing ships; battle; over. */
@@ -139,7 +164,7 @@ export class Table {
     const now = op.n === this.n;
     switch (op.t) {
       case 'sit': {
-        if (!isSeat(op.c) || this.seats[op.c] || mine !== -1) return null;
+        if (!isSeat(op.c) || this.seats[op.c] || mine !== -1 || this.line.length) return null;
         this.seats[op.c] = pid;
         this.names[op.c] = cleanName(op.name);
         return { t: 'sit', c: op.c };
@@ -152,12 +177,39 @@ export class Table {
         else if (this.phase === 'placing') this.commits[mine] = null;
         this.seats[mine] = null;
         this.names[mine] = '';
-        return { t: 'stand', c: mine, lost };
+        const next = this.fill(mine);
+        return { t: 'stand', c: mine, lost, next: next?.name ?? null };
+      }
+      case 'line': {
+        // A watcher who wants to play: to a free seat at once, or else to the end of the line.
+        if (mine !== -1 || this.placeOf(pid) !== -1) return null;
+        const free = this.seats.indexOf(null);
+        if (free !== -1) {
+          this.seats[free] = pid;
+          this.names[free] = cleanName(op.name);
+          return { t: 'sit', c: free };
+        }
+        this.line.push({ pid, name: cleanName(op.name) });
+        return { t: 'line', place: this.line.length - 1 };
+      }
+      case 'unline': {
+        const at = this.placeOf(pid);
+        if (at === -1) return null;
+        this.line.splice(at, 1);
+        return { t: 'unline' };
+      }
+      case 'gone': {
+        // Somebody in the line who left the room: their own page cannot say so, so another page does. Never a seat.
+        const at = this.placeOf(op.pid);
+        if (at === -1) return null;
+        this.line.splice(at, 1);
+        return { t: 'gone' };
       }
       case 'ready': {
         if (!now || mine === -1 || this.phase !== 'placing' || this.commits[mine]) return null;
         if (typeof op.commit !== 'string' || !/^[0-9a-f]{64}$/.test(op.commit)) return null;
         this.commits[mine] = op.commit;
+        if (this.phase === 'battle') this.fought = this.seats.slice();
         return { t: 'ready', c: mine, battle: this.phase === 'battle' };
       }
       case 'shot': {
@@ -207,21 +259,37 @@ export class Table {
         if (!kept && this.winner === mine && this.verdicts[mine ^ 1] !== 'broken') {
           this.winner = mine ^ 1;
           this.how = 'broken';
+          this.loser = this.seats[mine];
         }
         return { t: 'reveal', c: mine, kept };
       }
       case 'new': {
-        if (!now || mine === -1 || !(this.phase === 'over' || (!this.commits[0] && !this.commits[1]))) return null;
-        if (this.phase === 'over') {
+        // From an admiral; or, once the battle is over, from the next in line, so that the line never waits for
+        // admirals who walked away.
+        const over = this.phase === 'over';
+        const next = over && this.line[0]?.pid === pid;
+        if (!now || (mine === -1 && !next) || !(over || (!this.commits[0] && !this.commits[1]))) return null;
+        if (over) {
           this.history.push({ a: this.names[0], b: this.names[1], winner: this.winner, how: this.how, shots: this.shots[0].length + this.shots[1].length });
           if (this.history.length > HISTORY) this.history.shift();
         }
-        // The admirals change places, so that the other fires first.
-        this.seats.reverse();
-        this.names.reverse();
+        // The winner stays; the loser's seat goes to the first in line, if the loser still has it.
+        let change = null;
+        const c = over && this.line.length ? this.seatOf(this.loser) : -1;
+        if (c !== -1) {
+          const out = this.names[c];
+          const next = this.fill(c);
+          change = { out, in: next.name, left: this.loser, took: next.pid };
+        }
+        // Whoever was not in the last battle fires first. Otherwise the admirals change places, so that the other does.
+        const newcomers = this.fought ? [0, 1].filter((k) => this.seats[k] && !this.fought.includes(this.seats[k])) : [];
+        if (newcomers.length !== 1 || newcomers[0] !== 0) {
+          this.seats.reverse();
+          this.names.reverse();
+        }
         this.n += 1;
         this.fresh();
-        return { t: 'new', n: this.n };
+        return { t: 'new', n: this.n, change };
       }
       default:
         return null;
@@ -232,6 +300,7 @@ export class Table {
     this.winner = winner;
     this.how = how;
     this.pending = null;
+    this.loser = this.seats[winner ^ 1];
   }
 
   /** Whether every answer given for seat `c`'s fleet is what that fleet says. */
@@ -250,6 +319,6 @@ export class Table {
   /** What every page should agree on, for the tests. */
   fingerprint() {
     const shots = this.shots.map((list) => list.map((x) => `${x.r}${x.c}${x.result?.[0] ?? '?'}`).join('')).join('/');
-    return `${this.n}|${this.seats.join(',')}|${this.commits.map((x) => x?.slice(0, 8) ?? '-').join(',')}|${shots}|${this.winner ?? '-'}|${this.verdicts.join(',')}`;
+    return `${this.n}|${this.seats.join(',')}|${this.commits.map((x) => x?.slice(0, 8) ?? '-').join(',')}|${shots}|${this.winner ?? '-'}|${this.verdicts.join(',')}|${this.line.map((x) => x.pid).join(',')}`;
   }
 }

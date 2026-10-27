@@ -1,6 +1,7 @@
 // Playing with a friend, through a real p3p2 server: two admirals and a watcher, each in a browser profile of its
 // own, play a whole battle by clicking cells, the way players do. Every page must build the same table from the
-// room's log, no fleet may reach the room before the end, and both fleets must then be found as promised.
+// room's log, no fleet may reach the room before the end, and both fleets must then be found as promised. Then the
+// watcher, who asked to play, takes the loser's seat; and somebody who leaves the room is taken out of the line.
 //
 // It needs a p3p2 server (in the p3p2 repository: `npm run dev`, or the p3p2/p3p2 Docker image) and either a room's
 // invite link from its portal, or the portal's owner password to create a room for the game's address:
@@ -8,7 +9,8 @@
 //   npm run build && npm run friends -- --server http://127.0.0.1:8080        (P3P2_OWNER_PASSWORD=… in the env)
 //   npm run friends -- --invite 'http://localhost:5173/?room=http://127.0.0.1:8080/…' --url http://localhost:5173
 //
-// Everybody comes in by the invite, as players do: the first one in is the host.
+// Everybody comes in by the invite, as players do: the first one in is the host. The end waits for p3p2 to say that
+// a closed page has left the room: 30 s on a server with default settings (P3P2_GRACE_SECONDS sets it).
 //
 // Options: --headed, --speed 3, --video, --via <origin> (the room through another address: p3p2's lag proxy, say),
 // --engines (Grace in Firefox and the watcher in WebKit on an iPhone's screen,
@@ -148,12 +150,16 @@ const through = (invite, origin) => {
 const panel = (p) => p.page.locator('p3p2-panel');
 const panelOpen = (p) => p.page.evaluate(() => document.querySelector('p3p2-panel')?.shadowRoot?.querySelector('section.card')?.hidden === false);
 const closePanel = (p) => panel(p).getByRole('button', { name: 'Close' }).click();
+/** p3p2's own button, top right: its mark, how many are in the room, and unread chat. */
+const pill = (p) => panel(p).locator('button.pill');
+const line = (p) => table(p).then((t) => t?.line.map((x) => x.name).join(',') ?? null);
+const asking = (p) => bs(p, '__bs.room && __bs.room.asking()');
 
-/** The first one in, by the invite like everybody: the first seat, and the game's 👥 has the link to pass on. */
+/** The first one in, by the invite like everybody: the first seat, and p3p2's button has the link to pass on. */
 async function first(p, invite) {
   await arrive(p, invite);
   await until(`${p.name} takes the first seat`, () => seat(p), (s) => s === 0);
-  await p.page.locator('.hud [data-k="friends"]').click();
+  await pill(p).click();
   const link = p.page.getByLabel('Invite link', { exact: true });
   await link.waitFor({ timeout: 15000 });
   const passOn = await link.inputValue();
@@ -185,6 +191,8 @@ async function agree(players, label) {
 /** A shot on the page whose turn it is, by a click on a cell of the enemy's waters; answered by the other page. */
 async function fire(p, [r, c], how = 'click') {
   await until(`${p.name} may fire`, () => bs(p, '__bs.room.canFire()'), Boolean, 30000);
+  // A cell is where it is on screen once the camera has stopped moving.
+  await until(`${p.name}'s camera settles`, () => bs(p, '__bs.view.settled'), Boolean, 10000);
   const s = await seat(p);
   const before = (await table(p)).shots[s].length;
   if (how === 'click') {
@@ -221,9 +229,17 @@ try {
   const leaked = requests.filter((u) => u.startsWith(roomServer) || /p3p2-(core|panel|qr|local)|\/play-|\/table-/.test(u));
   if (leaked.length) fail(`an ordinary visit loaded ${leaked.join(', ')}`);
   else ok('an ordinary visit asks no server anything and loads no room code');
+  // "Play with a friend" on the title screen opens p3p2's own panel, as p3p2's button top right does.
+  await ada.page.getByRole('button', { name: 'Play with a friend' }).click();
+  await until('the title\'s "Play with a friend" opens p3p2\'s panel', () => panelOpen(ada), Boolean, 15000);
+  const setup = await panel(ada).getByRole('dialog').textContent();
+  if (!/Powered by\s*p3p2/.test(setup)) fail(`the panel opened from the title says: ${setup.slice(0, 120)}`);
+  await closePanel(ada);
+  if (!(await pill(ada).isVisible())) fail('p3p2\'s button is not shown after the panel closes');
+  ok('"Play with a friend" opens p3p2\'s panel; p3p2\'s button is top right');
 
   await first(ada, invite);
-  ok('Ada opens the invite first and hosts; her 👥 has the same link to pass on');
+  ok('Ada opens the invite first and hosts; p3p2\'s button has the same link to pass on');
   const grace = await profile('Grace', DESKTOP, flag('engines') ? await engine(firefox) : browser);
   players.push(grace);
   await arrive(grace, invite);
@@ -234,6 +250,15 @@ try {
   await arrive(ed, invite);
   if ((await seat(ed)) !== -1) fail(`the third to come is in seat ${await seat(ed)}, not watching`);
   ok('Ada and Grace sit, Edsger watches');
+  // Edsger is asked whether he wants to play, and he does: he is next.
+  const question = await until('Edsger is asked whether he wants to play', () => asking(ed), (a) => a?.ask === true);
+  if (!question.text.includes('Do you want to play or just keep watching?')) fail(`Edsger is asked: ${question.text}`);
+  await ed.page.getByRole('button', { name: 'Play next' }).click();
+  await until('Edsger is in line', () => line(ada), (l) => l === 'Edsger');
+  await until('Edsger is told he plays next', () => asking(ed), (a) => a?.ask === false && /play next/.test(a.text));
+  await until('p3p2\'s button counts three', () => pill(ada).textContent(), (t) => t.includes('3'));
+  await shot(ed, '00-ed-asked');
+  ok('Edsger is asked, says "Play next", and is first in line; p3p2\'s button counts 3');
 
   // Placement as it comes, then Ready.
   for (const p of [ada, grace]) {
@@ -288,6 +313,14 @@ try {
       await until('Escape closes the chat', () => panelOpen(ada).then((o) => !o), Boolean, 5000).catch((e) => fail(e.message));
       if (await bs(ada, '__bs.paused')) fail('Escape in the chat also paused the game');
       ok('Enter fires without opening chat; T opens it');
+      // Grace says something while Ada's panel is closed: p3p2's button says so.
+      await gracePlayer.page.keyboard.press('t');
+      await until('T opens Grace\'s chat', () => panelOpen(gracePlayer), Boolean, 5000);
+      await gracePlayer.page.keyboard.type('Good luck');
+      await gracePlayer.page.keyboard.press('Enter');
+      await until('Ada\'s button shows an unread message', () => pill(ada).getAttribute('aria-label'), (l) => /1 unread message/.test(l ?? ''), 10000)
+        .catch((e) => fail(e.message));
+      ok('a chat message while the panel is closed shows on p3p2\'s button');
     } else if (round === 8) {
       // Grace closes the page; Ada's shot waits; Grace's browser opens the invite again and answers it.
       await gracePlayer.page.close();
@@ -341,35 +374,72 @@ try {
   await shot(gracePlayer, '04-grace-over');
   await shot(ed, '05-ed-over');
 
-  // The watcher's phone: the 👥 button and the panel fit, upright and on its side.
+  // The end card says who plays next.
+  const next = await ed.page.locator('.overlay:not([hidden]) .stats').textContent();
+  if (!next.includes('Next battle: Edsger vs Ada')) fail(`the end card does not say who plays next: ${next}`);
+  // The watcher's phone: p3p2's button and the panel fit, upright and on its side.
   await ed.page.getByRole('button', { name: 'View the boards' }).click();
   for (const [w, h] of [[412, 915], [915, 412]]) {
     await ed.page.setViewportSize({ width: w, height: h });
     await sleep(300);
-    await ed.page.locator('.hud [data-k="friends"]').tap();
+    await pill(ed).tap();
     await until('the panel opens on the phone', () => panelOpen(ed), Boolean, 5000);
     const box = await panel(ed).getByRole('dialog').boundingBox();
     if (!box || box.x < 0 || box.y < 0 || box.x + box.width > w + 1 || box.y + box.height > h + 1) fail(`the panel leaves a ${w}x${h} screen: ${JSON.stringify(box)}`);
     await shot(ed, `06-ed-panel-${w}x${h}`);
     await closePanel(ed);
   }
-  ok('the 👥 button and the panel fit a phone, both ways round');
+  await ed.page.setViewportSize(devices['Pixel 7'].viewport);
+  ok('p3p2\'s button and the panel fit a phone, both ways round');
 
-  // The next battle, from the menu after a look at the boards: the admirals change places, and Grace fires first.
+  // The next battle, from the loser's menu after a look at the boards: the winner stays, Edsger takes Grace's seat
+  // and fires first, and Grace, watching now, is asked whether she wants to play.
   await gracePlayer.page.getByRole('button', { name: 'View the boards' }).click();
   await gracePlayer.page.getByRole('button', { name: 'Pause' }).click();
   const heading = await gracePlayer.page.locator('.overlay:not([hidden]) h2').textContent();
   if (heading !== 'Menu') fail(`the menu in a room is titled "${heading}"`);
   await gracePlayer.page.getByRole('button', { name: 'Next battle' }).click();
   for (const p of players) await until(`${p.name} sees battle 2`, () => table(p).then((t) => t.n), (n) => n === 2);
-  if ((await seat(gracePlayer)) !== 0) fail('Grace did not move to the first seat');
-  for (const p of [ada, gracePlayer]) {
+  const seats = await Promise.all([ed, ada, gracePlayer].map(seat));
+  if (seats.join() !== '0,1,-1') fail(`battle 2 seats Edsger, Ada and Grace at ${seats.join(', ')}, not 0, 1 and watching`);
+  if ((await line(ada)) !== '') fail(`the line is still ${await line(ada)}`);
+  const told = await bs(gracePlayer, '__bs.toasts');
+  if (!told.some((x) => x.includes('Edsger takes your seat'))) fail(`Grace is told: ${told.slice(-3).join(' / ')}`);
+  await until('Grace is asked whether she wants to play', () => asking(gracePlayer), (a) => a?.ask === true);
+  await shot(gracePlayer, '07-grace-asked');
+  await gracePlayer.page.getByRole('button', { name: 'Just watch' }).click();
+  await until('Grace is not asked again', () => asking(gracePlayer), (a) => a === null);
+  ok('the winner stays; Edsger takes the loser\'s seat; Grace is asked, and just watches');
+
+  for (const p of [ed, ada]) {
     await p.page.getByRole('button', { name: 'Ready' }).click();
     await until(`${p.name}'s promise`, async () => (await table(p)).commits[await seat(p)], Boolean);
   }
-  await fire(gracePlayer, [0, 0]);
+  await fire(ed, [0, 0], 'tap');
   await agree(players, 'battle 2');
-  ok('next battle: Grace fires first');
+  ok('battle 2: Edsger fires first');
+
+  // Ada resigns. Nobody waits, so the two change places for battle 3, as before, and Ada fires first.
+  await ada.page.getByRole('button', { name: 'Pause' }).click();
+  await ada.page.getByRole('button', { name: 'Resign' }).click();
+  for (const p of players) await until(`${p.name} sees Edsger win`, () => table(p).then((t) => t.winner), (w) => w === 0);
+  await until('Edsger may start the next battle', () => ed.page.getByRole('button', { name: 'Next battle' }).isVisible(), Boolean);
+  await ed.page.getByRole('button', { name: 'Next battle' }).click();
+  for (const p of players) await until(`${p.name} sees battle 3`, () => table(p).then((t) => t.n), (n) => n === 3);
+  if ((await seat(ada)) !== 0 || (await seat(ed)) !== 1) fail(`battle 3 seats Ada at ${await seat(ada)} and Edsger at ${await seat(ed)}`);
+  ok('nobody in line: the two change places, and Ada fires first');
+
+  // Grace changes her mind, from the menu; then closes her page. Once p3p2 says she has left, she is out of the line.
+  await gracePlayer.page.getByRole('button', { name: 'Pause' }).click();
+  await gracePlayer.page.getByRole('button', { name: 'Play next' }).click();
+  await until('Grace is in line', () => line(ada), (l) => l === 'Grace');
+  await agree(players, 'Grace in line');
+  await gracePlayer.context.close();
+  players.splice(players.indexOf(gracePlayer), 1);
+  const left = Date.now();
+  await until('Grace, gone from the room, is out of the line', () => line(ada), (l) => l === '', 120000);
+  await agree(players, 'Grace gone');
+  ok(`somebody who leaves the room is taken out of the line (${Math.round((Date.now() - left) / 1000)} s)`);
 
   for (const p of players) for (const e of await bs(p, '__bs.errors')) fail(`${p.name}: in-page error: ${e}`);
 } catch (e) {

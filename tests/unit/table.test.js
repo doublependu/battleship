@@ -142,7 +142,7 @@ describe('the table in a room', () => {
     const t = battle();
     expect(t.apply({ t: 'new', n: 1 }, ADA)).toBeNull();
     t.apply({ t: 'resign', n: 1 }, ADA);
-    expect(t.apply({ t: 'new', n: 1 }, GRACE)).toEqual({ t: 'new', n: 2 });
+    expect(t.apply({ t: 'new', n: 1 }, GRACE)).toEqual({ t: 'new', n: 2, change: null });
     expect(t.seats).toEqual([GRACE, ADA]);
     expect(t.phase).toBe('placing');
     expect(t.history).toHaveLength(1);
@@ -152,10 +152,10 @@ describe('the table in a room', () => {
     const t = new Table();
     t.apply({ t: 'sit', c: 0, name: 'Ada' }, ADA);
     t.apply({ t: 'ready', n: 1, commit: promise(ROWS, 's') }, ADA);
-    expect(t.apply({ t: 'stand' }, ADA)).toEqual({ t: 'stand', c: 0, lost: false });
+    expect(t.apply({ t: 'stand' }, ADA)).toEqual({ t: 'stand', c: 0, lost: false, next: null });
     expect(t.commits).toEqual([null, null]);
     const u = battle();
-    expect(u.apply({ t: 'stand' }, GRACE)).toEqual({ t: 'stand', c: 1, lost: true });
+    expect(u.apply({ t: 'stand' }, GRACE)).toEqual({ t: 'stand', c: 1, lost: true, next: null });
     expect(u.winner).toBe(0);
   });
 
@@ -180,6 +180,133 @@ describe('the table in a room', () => {
     }
     expect(u.n).toBe(2);
     expect(u.history[0]).toMatchObject({ winner: 0, how: 'resign' });
+  });
+});
+
+describe('watchers take turns', () => {
+  const LIN = 'lin-player-id-00004';
+  const MAX = 'max-player-id-00005';
+  /** A battle with Ed and Lin in line, in that order; Grace resigns, so Ada wins. */
+  function decided() {
+    const t = battle();
+    expect(t.apply({ t: 'line', name: 'Edsger' }, ED)).toEqual({ t: 'line', place: 0 });
+    expect(t.apply({ t: 'line', name: 'Lin' }, LIN)).toEqual({ t: 'line', place: 1 });
+    t.apply({ t: 'resign', n: 1 }, GRACE);
+    return t;
+  }
+
+  it('the line: in order of asking, once each, never an admiral; out again by asking, or when gone', () => {
+    const t = battle();
+    expect(t.apply({ t: 'line', name: 'Ada' }, ADA)).toBeNull();
+    t.apply({ t: 'line', name: 'Edsger' }, ED);
+    expect(t.apply({ t: 'line', name: 'Edsger' }, ED)).toBeNull();
+    t.apply({ t: 'line', name: 'Lin' }, LIN);
+    t.apply({ t: 'line', name: 'Max' }, MAX);
+    expect(t.line.map((x) => x.name)).toEqual(['Edsger', 'Lin', 'Max']);
+    expect(t.placeOf(LIN)).toBe(1);
+    expect(t.apply({ t: 'unline' }, LIN)).toEqual({ t: 'unline' });
+    expect(t.apply({ t: 'unline' }, LIN)).toBeNull();
+    expect(t.apply({ t: 'gone', pid: MAX }, ADA)).toEqual({ t: 'gone' });
+    // "gone" is for the line only: never a seat.
+    expect(t.apply({ t: 'gone', pid: GRACE }, ED)).toBeNull();
+    expect(t.seats).toEqual([ADA, GRACE]);
+    expect(t.line.map((x) => x.pid)).toEqual([ED]);
+  });
+
+  it('the next battle: the winner stays, the loser\'s seat goes to the first in line, who fires first', () => {
+    const t = decided();
+    expect(t.apply({ t: 'new', n: 1 }, GRACE)).toEqual({ t: 'new', n: 2, change: { out: 'Grace', in: 'Edsger', left: GRACE, took: ED } });
+    expect(t.seats).toEqual([ED, ADA]);
+    expect(t.names).toEqual(['Edsger', 'Ada']);
+    expect(t.line.map((x) => x.pid)).toEqual([LIN]);
+    expect(t.history[0]).toMatchObject({ a: 'Ada', b: 'Grace', winner: 0 });
+    // Ada beats Edsger too: Lin is next, against Ada, and fires first.
+    t.apply({ t: 'ready', n: 2, commit: promise(ROWS, 'e') }, ED);
+    t.apply({ t: 'ready', n: 2, commit: promise(COLUMNS, 'a') }, ADA);
+    t.apply({ t: 'resign', n: 2 }, ED);
+    t.apply({ t: 'new', n: 2 }, ADA);
+    expect(t.seats).toEqual([LIN, ADA]);
+    // Lin, in seat 0, loses to Ada: Grace, back in line, takes that seat and fires first.
+    t.apply({ t: 'line', name: 'Grace' }, GRACE);
+    t.apply({ t: 'ready', n: 3, commit: promise(ROWS, 'l') }, LIN);
+    t.apply({ t: 'ready', n: 3, commit: promise(COLUMNS, 'a') }, ADA);
+    t.apply({ t: 'resign', n: 3 }, LIN);
+    t.apply({ t: 'new', n: 3 }, LIN);
+    expect(t.seats).toEqual([GRACE, ADA]);
+  });
+
+  it('a broken promise loses, and that admiral gives up the seat', () => {
+    const t = battle();
+    t.apply({ t: 'line', name: 'Edsger' }, ED);
+    t.apply({ t: 'resign', n: 1 }, GRACE);
+    t.apply({ t: 'reveal', n: 1, fleet: COLUMNS, salt: 'salt-a' }, ADA);
+    expect(t.winner).toBe(1);
+    t.apply({ t: 'new', n: 1 }, GRACE);
+    expect(t.seats).toEqual([ED, GRACE]);
+  });
+
+  it('nobody in line: the two swap, as before', () => {
+    const t = battle();
+    t.apply({ t: 'resign', n: 1 }, GRACE);
+    expect(t.apply({ t: 'new', n: 1 }, ADA)).toMatchObject({ change: null });
+    expect(t.seats).toEqual([GRACE, ADA]);
+  });
+
+  it('the first in line may start the next battle once this one is over, nobody else in line may', () => {
+    const t = battle();
+    t.apply({ t: 'line', name: 'Edsger' }, ED);
+    t.apply({ t: 'line', name: 'Lin' }, LIN);
+    expect(t.apply({ t: 'new', n: 1 }, ED)).toBeNull();
+    t.apply({ t: 'resign', n: 1 }, GRACE);
+    expect(t.apply({ t: 'new', n: 1 }, LIN)).toBeNull();
+    expect(t.apply({ t: 'new', n: 1 }, ED)).toMatchObject({ n: 2 });
+    expect(t.seats).toEqual([ED, ADA]);
+  });
+
+  it('a seat that is left goes to the first in line at once; the newcomer is not replaced at the next battle', () => {
+    const t = decided();
+    // The loser gets up after the end: Edsger sits in Grace's seat now, and keeps it.
+    expect(t.apply({ t: 'stand' }, GRACE)).toEqual({ t: 'stand', c: 1, lost: false, next: 'Edsger' });
+    expect(t.seats).toEqual([ADA, ED]);
+    t.apply({ t: 'new', n: 1 }, ADA);
+    expect(t.seats).toEqual([ED, ADA]);
+    expect(t.line.map((x) => x.pid)).toEqual([LIN]);
+    // Getting up in the middle of a battle loses it, and the seat goes to the line as well.
+    t.apply({ t: 'ready', n: 2, commit: promise(ROWS, 'e') }, ED);
+    t.apply({ t: 'ready', n: 2, commit: promise(COLUMNS, 'a') }, ADA);
+    expect(t.apply({ t: 'stand' }, ADA)).toEqual({ t: 'stand', c: 1, lost: true, next: 'Lin' });
+    expect([t.winner, t.seats]).toEqual([0, [ED, LIN]]);
+    t.apply({ t: 'new', n: 2 }, ED);
+    expect(t.seats).toEqual([LIN, ED]);
+  });
+
+  it('asking to play with a seat free sits at once; nobody sits past the line', () => {
+    const t = new Table();
+    t.apply({ t: 'sit', c: 0, name: 'Ada' }, ADA);
+    expect(t.apply({ t: 'line', name: 'Grace' }, GRACE)).toEqual({ t: 'sit', c: 1 });
+    t.apply({ t: 'line', name: 'Edsger' }, ED);
+    t.apply({ t: 'stand' }, GRACE);
+    expect(t.seats).toEqual([ADA, ED]);
+    t.apply({ t: 'line', name: 'Lin' }, LIN);
+    t.seats[1] = null; // as no op can leave it: a free seat while Lin waits
+    expect(t.apply({ t: 'sit', c: 1, name: 'Max' }, MAX)).toBeNull();
+  });
+
+  it('a snapshot keeps the line, the loser and who fought; an old snapshot has no line', () => {
+    const t = decided();
+    const u = new Table(JSON.parse(JSON.stringify(t.save())));
+    expect(u.fingerprint()).toBe(t.fingerprint());
+    t.apply({ t: 'new', n: 1 }, ADA);
+    u.apply({ t: 'new', n: 1 }, ADA);
+    expect(u.fingerprint()).toBe(t.fingerprint());
+    expect(u.seats).toEqual([ED, ADA]);
+    const old = battle().save();
+    for (const k of ['line', 'loser', 'fought']) delete old[k];
+    const o = new Table(old);
+    expect([o.line, o.loser, o.fought]).toEqual([[], null, null]);
+    o.apply({ t: 'resign', n: 1 }, GRACE);
+    o.apply({ t: 'new', n: 1 }, ADA);
+    expect(o.seats).toEqual([GRACE, ADA]);
   });
 });
 

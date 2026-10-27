@@ -4,13 +4,17 @@
 //
 // Usage: npm run play -- [--games 1] [--device desktop|pixel7|iphone13|tablet] [--difficulty normal]
 //   [--quality auto|low|medium|high|ultra] [--rotate] [--switch-quality] [--headed] [--speed 1] [--seed 1]
-//   [--url http://localhost:5173] [--no-video] [--placement random|drag]
+//   [--url http://localhost:5173] [--no-video] [--placement random|drag] [--human]
+//
+// --human plays at a person's pace: the mouse travels to each target and hovers before it clicks, the player stops to
+// think between shots (longer after a hit), and the cursor and taps are drawn into the page for the recording.
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { chromium, devices } from 'playwright';
 import { createBot } from '../src/game/ai/index.js';
 import { createRng } from '../src/game/rng.js';
+import { createHuman, installCursor } from './lib/human.mjs';
 
 const args = process.argv.slice(2);
 const opt = (name, def) => {
@@ -25,6 +29,7 @@ const QUALITY = opt('quality', 'auto');
 const SPEED = Number(opt('speed', 1));
 const SEED = Number(opt('seed', Date.now() % 100000));
 const PLACEMENT = opt('placement', 'drag');
+const HUMAN = flag('human');
 let URL_BASE = opt('url', '');
 
 const DEVICES = {
@@ -72,8 +77,12 @@ const context = await browser.newContext({
   ...device,
   recordVideo: flag('no-video') ? undefined : { dir: outDir, size: device.viewport },
 });
+if (HUMAN) await installCursor(context);
 const pageCreatedAt = Date.now();
 const page = await context.newPage();
+// The hand's own randomness, apart from the shots' (the same seed plays the same game, at any pace).
+const humanRng = createRng(SEED ^ 0x5eed);
+const human = HUMAN ? createHuman(page, { touch: !!device.hasTouch, rng: humanRng.next, pace: 1 / SPEED }) : null;
 page.on('console', (m) => {
   if (m.type() === 'error') fail(`console error: ${m.text()}`);
 });
@@ -91,12 +100,14 @@ let shotNo = 0;
 const screenshot = (name) => page.screenshot({ path: `${outDir}/${String(shotNo).padStart(3, '0')}-${name}.png` });
 
 async function tap(x, y) {
-  if (touch) await page.touchscreen.tap(x, y);
+  if (human) await human.press(x, y);
+  else if (touch) await page.touchscreen.tap(x, y);
   else await page.mouse.click(x, y);
 }
 
 async function drag(from, to) {
-  if (touch) {
+  if (human) await human.drag(from, to);
+  else if (touch) {
     // Synthesize a touch drag through CDP (Playwright has no touch move helper).
     const cdp = await context.newCDPSession(page);
     const point = (p) => [{ x: p.x, y: p.y, id: 1 }];
@@ -119,7 +130,10 @@ async function drag(from, to) {
 async function clickButton(selector) {
   const el = page.locator(selector).first();
   await el.waitFor({ state: 'visible', timeout: 15000 });
-  if (touch) await el.tap();
+  if (human) {
+    await human.think('menu');
+    await human.pressElement(selector);
+  } else if (touch) await el.tap();
   else await el.click();
 }
 
@@ -132,6 +146,7 @@ async function checkLayout(label, cells = true) {
   const wantW = Math.round(vp.width * cs.dpr);
   if (Math.abs(cs.buffer[0] - wantW) > 2) fail(`${label}: buffer ${cs.buffer[0]} != ${wantW}`);
   if (Math.abs(scale - 1) > 1e-3) fail(`${label}: visualViewport.scale = ${scale}`);
+  await checkPill(label);
   if (!cells) return;
   const view = await bs('__bs.view');
   const sides = view.focused === 'both' ? ['player', 'enemy'] : [view.focused];
@@ -148,6 +163,28 @@ async function checkLayout(label, cells = true) {
     }, [side, vp.width, vp.height]);
     if (bad.length) fail(`${label}: ${bad.slice(0, 4).join('; ')}${bad.length > 4 ? ` (+${bad.length - 4})` : ''}`);
   }
+}
+
+/** p3p2's button, top right, covers none of the game's buttons, links or the status line. */
+async function checkPill(label) {
+  const bad = await page.evaluate(() => {
+    const host = document.querySelector('p3p2-panel');
+    if (!host) return ['no p3p2 button'];
+    // Before its panel is first opened the button is a plain one in the element; after, it is in its shadow root.
+    const pill = host.shadowRoot ? host.shadowRoot.querySelector('.pill') : host.querySelector('button');
+    const p = pill?.getBoundingClientRect();
+    if (!p?.width) return [];
+    const out = [];
+    for (const el of document.querySelectorAll('button, a, .status')) {
+      if (el.closest('p3p2-panel, .fork') || !el.checkVisibility({ visibilityProperty: true })) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width && r.left < p.right && r.right > p.left && r.top < p.bottom && r.bottom > p.top) {
+        out.push(el.dataset.k || el.id || el.textContent.trim().slice(0, 20));
+      }
+    }
+    return out;
+  });
+  if (bad.length) fail(`${label}: p3p2's button covers ${bad.join(', ')}`);
 }
 
 async function rotateViewport(label) {
@@ -241,6 +278,15 @@ async function playGame(g) {
     await settle();
     const before = (await bs('__bs.shots')).length;
     const p = await bs(`__bs.cellToClient('enemy', ${r}, ${c})`);
+    if (human) {
+      const last = (await bs('__bs.shots')).filter((s) => s.by === 'player').at(-1);
+      await human.think(last?.result === 'hit' ? 'hit' : 'aim');
+      // Now and then a look at a cell nearby first.
+      if (!touch && humanRng.chance(0.25)) {
+        const q = await bs(`__bs.cellToClient('enemy', ${Math.min(9, r + 1)}, ${Math.max(0, c - 1)})`);
+        await human.hesitate([q]);
+      }
+    }
     await tap(p.x, p.y);
     if (touch) {
       await sleep(80);
@@ -266,6 +312,7 @@ async function playGame(g) {
       await page.keyboard.press('p');
       await waitFor('__bs.paused');
       await screenshot(`g${g}-paused`);
+      await checkPill('pause');
       const a = await bs('__bs.audio');
       if (a.state === 'running') fail('audio still running while paused');
       await clickButton('[data-k="resume"]');
@@ -280,6 +327,7 @@ async function playGame(g) {
   }
   await sleep(1500 / SPEED);
   await screenshot(`g${g}-over`);
+  await checkPill('game over');
   await sleep(5000 / SPEED); // the last ship finishes going down
   await checkWrecks('game over');
   const stats = await bs('__bs.stats');
@@ -297,10 +345,10 @@ async function playGame(g) {
   if (count('fire') < stats.player.shots) fail(`fire cues ${count('fire')} < player shots ${stats.player.shots}`);
   const outcomes = count('splash') + count('explosion');
   if (outcomes < stats.player.shots + stats.ai.shots) fail(`outcome cues ${outcomes} < shots ${stats.player.shots + stats.ai.shots}`);
-  const result = { game: g, winner, playerShots: stats.player.shots, aiShots: stats.ai.shots, seconds: Math.round((Date.now() - started) / 1000),
-    sunkCues: count('sunk') };
+  const result = { game: g, winner, playerShots: stats.player.shots, aiShots: stats.ai.shots, playerHits: pHits, aiHits: aHits,
+    seconds: Math.round((Date.now() - started) / 1000), sunkCues: count('sunk') };
   log.games.push(result);
-  console.log(`game ${g}: ${winner} won — player ${stats.player.shots} shots, AI ${stats.ai.shots} shots, ${result.seconds}s`);
+  console.log(`game ${g}: ${winner} won — player ${stats.player.shots} shots (${pHits} hits), AI ${stats.ai.shots} shots (${aHits} hits), ${result.seconds}s`);
 }
 
 /** Sunk ships follow the tier on screen: wrecks on the seabed on Ultra, none on any other tier. */
@@ -315,6 +363,7 @@ async function switchQuality() {
     await page.keyboard.press('p');
     await waitFor('__bs.paused');
     await clickButton('.overlay:not([hidden]) [data-k="settings"]');
+    await checkPill('settings');
     await clickButton(`[data-k="graphics"] [data-v="${tier}"]`);
     await waitFor(`__bs.quality.current === '${tier}' || ('${tier}' === 'ultra' && __bs.quality.current === 'high')`, 20000)
       .catch(() => fail(`tier did not switch to ${tier}`));
@@ -322,6 +371,7 @@ async function switchQuality() {
     await clickButton('[data-k="resume"]');
     await waitFor('!__bs.paused');
     await sleep(600);
+    await settle();
     await checkLayout(`after switching to ${tier}`);
     await checkWrecks(`after switching to ${tier}`);
     await screenshot(`tier-${tier}`);
@@ -334,8 +384,9 @@ try {
   await checkLayout('title', false);
   await pinchTest();
   await clickButton(`#difficulty [data-diff="${DIFFICULTY}"]`);
-  const tierAtPlay = (await bs('__bs.quality')).current;
   await clickButton('#play');
+  // Read after the click: Auto may still change the tier while the player reaches for PLAY, with no toast yet.
+  const tierAtPlay = (await bs('__bs.quality')).current;
   for (let g = 0; g < GAMES; g++) {
     await playGame(g);
     if (g < GAMES - 1) await clickButton('[data-k="again"]');

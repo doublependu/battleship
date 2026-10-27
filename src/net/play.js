@@ -95,6 +95,10 @@ export class RoomPlay {
     /** Whether an animation is running, so that nobody fires in the middle of one. */
     this.showing = false;
     this.mine = null;
+    /** What the watcher's box at the bottom says: the question whether to play, or the place in line. Null: nothing. */
+    this.asking = null;
+    /** A "Play next" on its way to the room: the question stays away until it is back. */
+    this.lining = false;
   }
 
   get table() { return this.room?.table ?? null; }
@@ -123,6 +127,8 @@ export class RoomPlay {
     this.ctx.hud.setReadyLabel(null);
     this.ctx.board.setTitles();
     this.ctx.overlays.setRoom(null);
+    this.asking = null;
+    this.ctx.hud.setAsk(null);
     this.ctx.toTitle();
   }
 
@@ -197,17 +203,25 @@ export class RoomPlay {
     ctx.layout();
     if (placing) ctx.setView('player');
     else if (t.phase === 'battle') ctx.setView(seat !== -1 && t.turn === seat ? 'enemy' : 'player');
+    // Somebody watching while the admirals place their fleets: the boards, not the title's view of the sea.
+    else if (t.phase === 'placing') ctx.setView('player');
     this.status();
     if (t.phase === 'over') this.showOver();
     else ctx.audio.setMusicState(t.phase === 'battle' ? 'battle' : 'calm');
   }
 
-  /** The status line: whose move it is, or what is awaited. */
+  /** The status line: whose move it is, or what is awaited; and the watcher's box. */
   status() {
+    if (!this.table) return;
+    this.lining &&= this.table.placeOf(this.room.me) === -1 && this.seat === -1;
+    this.ask();
+    this.statusLine();
+  }
+
+  statusLine() {
     const t = this.table;
     const seat = this.seat;
     const { hud } = this.ctx;
-    if (!t) return;
     hud.setNames(...(seat === -1 ? [this.name(0), this.name(1)] : [`${this.name(seat)} (you)`, this.name(seat ^ 1)]));
     // Over the boards: a watcher's are the two admirals' fleets. Redrawn only when the words change.
     const titles = seat === -1 ? `${this.name(0)}'s fleet|${this.name(1)}'s fleet` : '';
@@ -220,7 +234,7 @@ export class RoomPlay {
       const p = this.room.presence(t.seats[c]);
       return p === 'here' ? '' : p === null ? ' (not here)' : ` (${p})`;
     };
-    if (!t.seats[0] || !t.seats[1]) return hud.setStatus('Waiting for a second admiral — share the invite (👥)');
+    if (!t.seats[0] || !t.seats[1]) return hud.setStatus('Waiting for a second admiral — send them the invite (top right)');
     if (t.phase === 'placing') {
       if (seat !== -1 && !t.commits[seat]) return hud.setStatus('Place your fleet, then Ready');
       const waiting = [0, 1].filter((c) => !t.commits[c]).map((c) => this.name(c) + away(c));
@@ -231,6 +245,52 @@ export class RoomPlay {
     if (t.pending) return hud.setStatus(`Waiting for ${this.name(t.pending.by ^ 1)}${away(t.pending.by ^ 1)} to answer`);
     if (t.turn === seat) return hud.setStatus('Your turn — pick a target');
     return hud.setStatus(`${this.name(t.turn)}${away(t.turn)} is aiming…`);
+  }
+
+  /** "Just watch" is remembered for this room, in this tab. */
+  get watchOnly() {
+    try {
+      return sessionStorage.getItem(`battleship:watch:${this.room.key}`) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  set watchOnly(on) {
+    try {
+      if (on) sessionStorage.setItem(`battleship:watch:${this.room.key}`, '1');
+      else sessionStorage.removeItem(`battleship:watch:${this.room.key}`);
+    } catch {
+      /* asked again after a reload, then */
+    }
+  }
+
+  /** For a watcher at a full table: do they want to play, or just keep watching? Or, in line, their place in it. */
+  ask() {
+    const t = this.table;
+    const at = t.placeOf(this.room.me);
+    let asking = null;
+    if (this.seat === -1 && at !== -1) {
+      asking = { ask: false, text: at === 0 ? 'You play next: the winner stays, the loser makes way.' : `You are number ${at + 1} in line to play.` };
+    } else if (this.seat === -1 && t.seats[0] && t.seats[1] && !this.watchOnly && !this.lining) {
+      asking = { ask: true, text: `${this.name(0)} and ${this.name(1)} are playing. Do you want to play or just keep watching?` };
+    }
+    if (JSON.stringify(asking) === JSON.stringify(this.asking)) return;
+    this.asking = asking;
+    this.ctx.hud.setAsk(asking);
+    this.ctx.layout();
+  }
+
+  /** The answer: play (to the line, or a free seat) or just watch (and out of the line). */
+  answer(play) {
+    const t = this.table;
+    if (!t || this.seat !== -1) return;
+    this.watchOnly = !play;
+    if (play) {
+      if (!this.room.line()) return void this.ctx.hud.toast('Not connected: try again in a moment');
+      this.lining = true;
+    } else if (t.placeOf(this.room.me) !== -1) this.room.unline();
+    this.ask();
   }
 
   canFire() {
@@ -483,6 +543,9 @@ export class RoomPlay {
       return `${this.name(c)}: ${t.shots[c].length} shots, ${t.shots[c].filter((x) => x.result && x.result !== 'miss').length} hits` +
         (v === 'kept' ? ' · fleet as promised' : v === 'broken' ? ' · fleet NOT as promised' : ' · fleet not shown yet');
     });
+    // Who plays the next battle, when somebody is waiting: the winner stays, the first in line takes the loser's seat.
+    const out = t.seatOf(t.loser);
+    if (t.line.length && out !== -1) lines.push(`Next battle: ${t.line[0].name} vs ${this.name(out ^ 1)}, who stays`);
     const won = t.winner === seat;
     const how = t.how === 'resign' ? 'by resignation' : t.how === 'broken' ? 'because the other fleet was not as promised' : 'every ship sunk';
     ctx.audio.setMusicState(won ? 'victory' : seat === -1 ? 'calm' : 'defeat');
@@ -492,7 +555,7 @@ export class RoomPlay {
       banner: seat === -1 ? `${this.name(t.winner).toUpperCase()} WINS` : won ? 'VICTORY' : 'DEFEAT',
       sub: seat === -1 ? `${this.name(t.winner)} won, ${how}.` : won ? `You won, ${how}.` : `${this.name(t.winner)} won, ${how}.`,
       lines,
-      canNext: seat !== -1,
+      canNext: seat !== -1 || t.line[0]?.pid === this.room.me,
     });
     this.status();
   }
@@ -501,14 +564,19 @@ export class RoomPlay {
   menu() {
     const t = this.table;
     const seat = this.seat;
+    const at = t.placeOf(this.room.me);
     return {
       canResign: seat !== -1 && t.phase !== 'over' && !!t.seats[seat ^ 1],
       canStand: seat !== -1,
       canSit: seat === -1 && t.seats.includes(null),
-      canNext: seat !== -1 && (t.phase === 'over' || (!t.commits[0] && !t.commits[1])),
+      canLine: seat === -1 && !t.seats.includes(null) && at === -1,
+      canUnline: at !== -1,
+      canNext: (seat !== -1 && (t.phase === 'over' || (!t.commits[0] && !t.commits[1]))) || (t.phase === 'over' && at === 0),
       resign: () => this.room?.submit({ t: 'resign', n: t.n }),
       stand: () => this.room?.submit({ t: 'stand' }),
       sit: () => this.room?.sit(t.seats.indexOf(null)),
+      line: () => this.answer(true),
+      unline: () => this.answer(false),
       next: () => this.room?.submit({ t: 'new', n: t.n }),
     };
   }

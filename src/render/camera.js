@@ -27,6 +27,8 @@ export class CameraRig {
     this.layout = 'both';
     this.cur = { target: new THREE.Vector3(0, 0, -2), dist: 30, pitch: 0.25, yaw: 0 };
     this.goal = { target: new THREE.Vector3(0, 0, -2), dist: 30, pitch: 0.25, yaw: 0 };
+    /** e2e only (film): a camera of the film's choosing in place of the game's, or null. */
+    this.film = null;
     this.fits = {};
     this.shakeAmp = 0;
     this.shakeOffset = new THREE.Vector3();
@@ -90,17 +92,28 @@ export class CameraRig {
       Math.abs(this.cur.pitch - this.goal.pitch) < 0.002;
   }
 
+  /**
+   * e2e only (film): hold the camera on `shot` ({ target: [x, y, z], dist, pitch, yaw, spin } in radians, spin a
+   * second), eased slowly, whatever the game asks for meanwhile; null hands it back to the game's framing.
+   */
+  setFilm(shot) {
+    this.film = shot && { ...shot, target: new THREE.Vector3(...shot.target), spin: shot.spin ?? 0, since: null };
+  }
+
   shake(strength) {
     if (!reducedMotion) this.shakeAmp = Math.max(this.shakeAmp, strength);
   }
 
   update(dt, time) {
-    const k = 1 - Math.exp(-dt * 5.5);
-    this.cur.target.lerp(this.goal.target, k);
-    this.cur.dist += (this.goal.dist - this.cur.dist) * k;
-    this.cur.pitch += (this.goal.pitch - this.cur.pitch) * k;
-    let yaw = this.goal.yaw;
-    if (this.view === 'title' && !reducedMotion) yaw = Math.sin(time * 0.05) * 0.14;
+    const film = this.film;
+    const goal = film ?? this.goal;
+    const k = 1 - Math.exp(-dt * (film ? 1.6 : 5.5));
+    this.cur.target.lerp(goal.target, k);
+    this.cur.dist += (goal.dist - this.cur.dist) * k;
+    this.cur.pitch += (goal.pitch - this.cur.pitch) * k;
+    let yaw = goal.yaw;
+    if (film) yaw += film.spin * (time - (film.since ??= time));
+    else if (this.view === 'title' && !reducedMotion) yaw = Math.sin(time * 0.05) * 0.14;
     this.cur.yaw += (yaw - this.cur.yaw) * k;
     this.#place(this.camera, this.cur.target, this.cur.dist, this.cur.pitch, this.cur.yaw);
     if (this.shakeAmp > 0.001) {

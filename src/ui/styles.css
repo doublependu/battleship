@@ -4,7 +4,12 @@
 .hud[hidden] { display: none; }
 .hud > * { pointer-events: auto; }
 .topbar { position: absolute; top: 0; left: 0; right: 0; display: flex; flex-direction: column; align-items: center;
-  padding: max(8px, env(safe-area-inset-top)) 64px 0; pointer-events: none; }
+  padding: max(8px, env(safe-area-inset-top)) 108px 0; pointer-events: none; }
+/* Narrow: between pause and sound (left, 100px) and p3p2's button (right, up to 64px), centred in what is left. */
+@media (max-width: 519px) {
+  .topbar { padding-left: calc(max(8px, env(safe-area-inset-left)) + 100px);
+    padding-right: calc(max(12px, env(safe-area-inset-right)) + 66px); }
+}
 .status { font-weight: 800; font-size: clamp(16px, 2.6vw, 22px); text-shadow: 0 2px 8px rgba(0, 15, 30, 0.9);
   background: rgba(5, 25, 40, 0.45); border-radius: 12px; padding: 6px 16px; max-width: 92vw; text-align: center;
   transition: background 0.2s; }
@@ -20,8 +25,11 @@
 .pip.sunk { background: #d0402f; opacity: 0.85; }
 .iconbar { position: absolute; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left));
   display: flex; gap: 6px; }
-/* Top right, where p3p2's panel opens: the status between the two bars has the room the topbar keeps either side. */
-.iconbar.right { left: auto; right: max(8px, env(safe-area-inset-right)); }
+/* p3p2's button and panel, top right: placed by p3p2 12px from the corner, here also clear of a notch or a rounded
+   corner, like the game's own buttons. Only the place; the look is p3p2's. */
+p3p2-panel { top: max(12px, env(safe-area-inset-top)) !important; right: max(12px, env(safe-area-inset-right)) !important; }
+/* p3p2's mark on "Play with a friend". */
+.mark { width: 1.15em; height: 1.15em; vertical-align: -0.22em; margin-right: 0.45em; fill: currentColor; }
 .icon { width: 44px; height: 44px; border: 0; border-radius: 12px; background: rgba(5, 25, 40, 0.55);
   display: grid; place-items: center; padding: 0; }
 .icon svg { width: 22px; height: 22px; fill: none; stroke: #eef6fb; stroke-width: 2; stroke-linecap: round;
@@ -31,6 +39,9 @@
   align-items: center; gap: 8px; padding: 0 12px max(12px, env(safe-area-inset-bottom)); pointer-events: none; }
 .bottombar > * { pointer-events: auto; }
 .bottombar[hidden], .bottombar > [hidden] { display: none; }
+.ask { background: rgba(5, 25, 40, 0.72); border-radius: 14px; padding: 10px 12px; max-width: min(460px, 94vw);
+  text-align: center; }
+.ask p { margin: 0 0 8px; font-size: 14px; text-shadow: 0 1px 4px #000; }
 .hint { font-size: 13px; opacity: 0.9; text-shadow: 0 1px 4px #000; pointer-events: none; text-align: center; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 .btn { border: 0; border-radius: 11px; padding: 11px 16px; background: rgba(238, 246, 251, 0.92); color: #0b2a40;

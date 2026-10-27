@@ -186,12 +186,21 @@ export class AudioEngine {
     return { state: this.state, voices: this.sfx ? this.sfx.voices.length : 0, buffers: this.buffers.size };
   }
 
+  /** e2e only: the whole mix as a stereo MediaStream (the limiter's output), for recordings. */
+  tap() {
+    if (!this.ctx || !this.limiter) return null;
+    if (!this.tapped) {
+      const dest = this.ctx.createMediaStreamDestination();
+      this.limiter.connect(dest);
+      this.tapped = dest.stream;
+    }
+    return this.tapped;
+  }
+
   /** e2e only (?recaudio): tap the limiter output into a MediaRecorder so recordings can carry sound. */
   #startRecording() {
     try {
-      const dest = this.ctx.createMediaStreamDestination();
-      this.limiter.connect(dest);
-      const rec = new MediaRecorder(dest.stream, { mimeType: 'audio/webm;codecs=opus' });
+      const rec = new MediaRecorder(this.tap(), { mimeType: 'audio/webm;codecs=opus' });
       const chunks = [];
       rec.ondataavailable = (e) => chunks.push(e.data);
       rec.start(1000);
