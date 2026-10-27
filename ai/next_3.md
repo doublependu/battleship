@@ -59,7 +59,9 @@ In `recordings/film-2026-10-27T16-46-26-928Z/` (gitignored):
 | `youtube.txt` | | | | Title, description (with `<the game's address>` to fill in), 7 chapters (each 10 s or more), tags |
 | `thumbnail.png` | 1280×720 | | | The last sinking on Ultra, with the title |
 | `short.mp4` | 1080×1920, 60 fps | 53 s | −14.0 LUFS, peak −1.9 dBTP | A sinking first, placement, hits and sinkings, VICTORY, end card over the open sea |
+| `short.txt` | | | | Title, description (address to fill in), hashtags |
 | `x.mp4` | 1920×1080, 60 fps, 96 MB | 60 s | −14.0 LUFS, peak −1.9 dBTP | Sinking with title, highlights, Low vs Ultra, a phone, the friends, end card; captions burned in |
+| `x.txt` | | | | The post (234 of 280 characters with the link) and a reply with the source and credits |
 
 The sound used to be normalised by one `loudnorm` pass, which came out at −15.4 LUFS with a true peak of
 +1.3 dBFS once in AAC. Now `join()` measures the mix, applies one gain and a limiter at 4× the rate 3 dB under full
@@ -102,7 +104,8 @@ fit in less. X allows 2:20.
 ## 6. What to do next
 
 1. **Watch the three videos** in `recordings/film-2026-10-27T16-46-26-928Z/`: `youtube.mp4`, `short.mp4`, `x.mp4`,
-   and `thumbnail.png`. Fill in the game's address in `youtube.txt`, then upload.
+   and `thumbnail.png`. Fill in the game's address in `youtube.txt`, `short.txt` and `x.txt`, then upload. Links
+   in a Short's description can't be tapped: set the long video as the Short's "Related video" in YouTube Studio.
 2. **Commit and deploy** (`npm run deploy`). `TABLE_VERSION` is now 2, so pages before this deploy and after it
    are kept in separate rooms by p3p2.
 3. **The battle-start freeze** on high-DPR Ultra (§5): worth a look with a profiler at 1080×1920.

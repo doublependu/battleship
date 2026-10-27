@@ -94,10 +94,11 @@ somebody who leaves is taken out of the line. Options: `--url` (default: the bui
 
 `npm run film` (after `npm run build`) records takes in headed Chrome, which records its own tab (canvas, HUD and the
 game's stereo sound, about 57 fps at 1080p on an RTX 3060), then cuts them with `ffmpeg` into `youtube.mp4` (about
-5 min, 1920×1080, with `youtube.txt`: title, description, chapters), `short.mp4` (1080×1920, under a minute),
-`x.mp4` (about a minute) and `thumbnail.png`, in `recordings/film-<stamp>/`. The takes need the desktop for about
-20 minutes, with their windows in front. The videos name no address for the game: the end card says "Link in the
-description", and `youtube.txt` has a placeholder for it. Options:
+5 min, 1920×1080, with `youtube.txt`: title, description, chapters), `short.mp4` (1080×1920, under a minute, with
+`short.txt`: title, description), `x.mp4` (about a minute, with `x.txt`: the post and a reply) and `thumbnail.png`,
+in `recordings/film-<stamp>/`. The takes need the desktop for about 20 minutes, with their windows in front. The
+videos name no address for the game: the end card says "Link in the description", and the `.txt` files have a
+placeholder for it. Options:
 - `--cast 20`: first pick the seed of a close win against Captain; `--seed 8` plays that seed's battle
 - `--takes battle-ai,tiers`: record only those again (into the latest film)
 - `--cut youtube|short|x|none --from recordings/film-…`: cut again from takes already recorded

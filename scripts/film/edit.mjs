@@ -410,13 +410,11 @@ function describe(chapters, total) {
   for (const c of chapters) if (!kept.length || c.at - kept.at(-1).at >= 10) kept.push(c);
   while (kept.length > 1 && total - kept.at(-1).at < 10) kept.pop();
   const lines = kept.map((c, i) => `${fmt(i === 0 ? 0 : c.at)} ${c.title}`);
+  // A paragraph is one line: a description keeps its line breaks, which on a phone's width end lines anywhere.
   return `Title: Battleship on real water: free, in your browser (three.js)
 
 Description:
-Classic Battleship in 3D, on an interactive water simulation, with explosions, fires and ships that go down.
-Play against the AI (Recruit, Captain or Admiral) or with a friend by sending a link. No install and no downloads:
-the ships, the sound and the music are all made in the browser, so it is ready in under a second, on a
-desktop or a phone.
+Classic Battleship in 3D, on an interactive water simulation, with explosions, fires and ships that go down. Play against the AI (Recruit, Captain or Admiral) or with a friend by sending a link. No install and no downloads: the ships, the sound and the music are all made in the browser, so it is ready in under a second, on a desktop or a phone.
 
 Play: ${GAME}
 Source (GPL-3.0, fork it): https://${REPO}
@@ -429,6 +427,46 @@ ${lines.join('\n')}
 Tags: battleship, browser game, three.js, webgl, water simulation, naval battle, multiplayer, indie game
 
 (${fmt(total)} long; filmed on Ultra graphics on a desktop PC; the phone shots are a phone-sized screen.)
+`;
+}
+
+// Links in a Short's description can't be tapped: the Short's "Related video" (set in YouTube Studio) can be the
+// long video, whose description has the address.
+function describeShort() {
+  return `Title: Battleship on real water, free in your browser
+
+Description:
+Classic Battleship in 3D, on an interactive water simulation. Drag your fleet into place, then fire: hits burn, ships go down, and the sound and music are made as you play. Free, with no install, on a phone or a desktop.
+
+Play: ${GAME}
+Source (GPL-3.0, fork it): https://${REPO}
+Water adapted from threejs-water by Yong Su (MIT), a port of WebGL Water by Evan Wallace.
+More games: https://maize.live
+
+Filmed on Ultra graphics, in a phone-sized window on a desktop PC.
+
+#shorts #browsergame #threejs #gamedev
+`;
+}
+
+// A post is 280 characters at most, a link counting 23: this one is 234 with the game's link, the reply (the source
+// and the credits) 270.
+function describeX() {
+  return `Post:
+Battleship on real water, free in your browser.
+
+Hits burn and ships go down. Play the AI, or send a friend a link: watchers take turns. Low to Ultra graphics, on a desktop or a phone.
+
+Play: ${GAME}
+
+#threejs #gamedev
+
+Reply:
+Open source (GPL-3.0): https://${REPO}
+
+No images, models or sound files to download: the ships, the sound and the music are made in the browser, so it's ready in under a second.
+
+Water adapted from threejs-water by Yong Su, a port of Evan Wallace's WebGL Water.
 `;
 }
 
@@ -466,6 +504,7 @@ async function short({ dir, takes }) {
     const out = `${dir}/short.mp4`;
     join(parts, out, work);
     if (duration(out) > 60) console.warn(`  (the Short is ${duration(out).toFixed(1)} s: over 60 s)`);
+    writeFileSync(`${dir}/short.txt`, describeShort());
     return out;
   } finally {
     await p.close();
@@ -517,6 +556,7 @@ async function x({ dir, takes }) {
     add({ src: sea?.file ?? ai.file, from: endFrom, to: endFrom + 5.5, caps: [{ png: await p.end(), from: 0.2, to: 5.5 }], fade: 0.3 });
     const out = `${dir}/x.mp4`;
     join(parts, out, work);
+    writeFileSync(`${dir}/x.txt`, describeX());
     return out;
   } finally {
     await p.close();
